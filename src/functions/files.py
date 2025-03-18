@@ -11,7 +11,7 @@ import os
 import logging
 from typing import Dict, Any, List, Optional
 
-from src.function import Function
+from src.function import Function, Example
 from src.files import read, update_with_content, apply, tree
 
 # Configure logging
@@ -45,26 +45,23 @@ class ReadFile(Function):
                     }
                 },
                 "required": ["path"]
-            },
-            "examples": [
-                {
-                    "description": "Read a Python file with line numbers",
-                    "function_call": {
-                        "name": "files.read",
-                        "arguments": {"path": "src/model.py"}
-                    },
-                    "result": "1 import os\n2 import logging\n3 ..."
-                },
-                {
-                    "description": "Read a configuration file",
-                    "function_call": {
-                        "name": "files.read",
-                        "arguments": {"path": "config.json"}
-                    },
-                    "result": "1 {\n2   \"debug\": true,\n3   \"port\": 8000\n4 }"
-                }
-            ]
+            }
         }
+    
+    def examples(self) -> List[Example]:
+        """Returns a list of examples demonstrating usage of this function."""
+        return [
+            Example(
+                description="Read a Python file with line numbers",
+                args={"path": "src/model.py"},
+                result="1 import os\n2 import logging\n3 ..."
+            ),
+            Example(
+                description="Read a configuration file",
+                args={"path": "config.json"},
+                result="1 {\n2   \"debug\": true,\n3   \"port\": 8000\n4 }"
+            )
+        ]
     
     def invoke(self, args: Dict[str, Any]) -> str:
         """
@@ -127,32 +124,29 @@ class UpdateFile(Function):
                     }
                 },
                 "required": ["path"]
-            },
-            "examples": [
-                {
-                    "description": "Apply a simple diff to update a configuration value",
-                    "function_call": {
-                        "name": "files.update",
-                        "arguments": {
-                            "path": "src/config.py",
-                            "diff": "--- src/config.py\n+++ src/config.py\n@@ -1,5 +1,5 @@\n DEBUG = False\n-PORT = 8000\n+PORT = 9000\n"
-                        }
-                    },
-                    "result": "SUCCESS (+1,-1)"
-                },
-                {
-                    "description": "Apply a diff to add a new function",
-                    "function_call": {
-                        "name": "files.update",
-                        "arguments": {
-                            "path": "src/utils.py",
-                            "diff": "--- src/utils.py\n+++ src/utils.py\n@@ -45,3 +45,8 @@\n     return formatted_data\n \n # End of existing functions\n+\n+def validate_config(config):\n+    \"\"\"Validate the configuration object.\"\"\"\n+    return all(key in config for key in ['api_key', 'endpoint'])\n"
-                        }
-                    },
-                    "result": "SUCCESS (+5,-0)"
-                }
-            ]
+            }
         }
+    
+    def examples(self) -> List[Example]:
+        """Returns a list of examples demonstrating usage of this function."""
+        return [
+            Example(
+                description="Apply a simple diff to update a configuration value",
+                args={
+                    "path": "src/config.py",
+                    "diff": "--- src/config.py\n+++ src/config.py\n@@ -1,5 +1,5 @@\n DEBUG = False\n-PORT = 8000\n+PORT = 9000\n"
+                },
+                result="SUCCESS (+1,-1)"
+            ),
+            Example(
+                description="Apply a diff to add a new function",
+                args={
+                    "path": "src/utils.py",
+                    "diff": "--- src/utils.py\n+++ src/utils.py\n@@ -45,3 +45,8 @@\n     return formatted_data\n \n # End of existing functions\n+\n+def validate_config(config):\n+    \"\"\"Validate the configuration object.\"\"\"\n+    return all(key in config for key in ['api_key', 'endpoint'])\n"
+                },
+                result="SUCCESS (+5,-0)"
+            )
+        ]
     
     def invoke(self, args: Dict[str, Any]) -> str:
         """
@@ -251,6 +245,16 @@ class UpdateFile(Function):
             Status message with line counts
         """
         try:
+            success, lines_added, lines_deleted = apply(file_path, diff_text)
+            return f"SUCCESS (+{lines_added},-{lines_deleted})"
+            
+        except FileNotFoundError as e:
+            rel_path = os.path.relpath(file_path, self.workspace)
+            return f"Cannot apply diff: File does not exist: {rel_path}"
+        except Exception as e:
+            rel_path = os.path.relpath(file_path, self.workspace)
+            logger.error(f"Error applying diff to file {rel_path}: {e}")
+            return f"Error applying diff to file {rel_path}: {str(e)}"
 
 
 class TreeFile(Function):
@@ -295,6 +299,45 @@ class TreeFile(Function):
                 }
             }
         }
+    
+    def examples(self) -> List[Example]:
+        """Returns a list of examples demonstrating usage of this function."""
+        return [
+            Example(
+                description="Get a tree view of the entire workspace",
+                args={},
+                result={
+                    "path": "",
+                    "tree": [
+                        {
+                            "type": "directory",
+                            "name": "src",
+                            "children": [
+                                {
+                                    "type": "file",
+                                    "name": "main.py",
+                                    "size": {"bytes": 1024, "lines": 48}
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ),
+            Example(
+                description="Get a tree view of a specific directory without respecting .gitignore",
+                args={"path": "src/models", "respect_gitignore": False},
+                result={
+                    "path": "src/models",
+                    "tree": [
+                        {
+                            "type": "file",
+                            "name": "model.py",
+                            "size": {"bytes": 2048, "lines": 86}
+                        }
+                    ]
+                }
+            )
+        ]
     
     def invoke(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -355,13 +398,3 @@ class TreeFile(Function):
             return self.workspace
             
         return full_path
-            success, lines_added, lines_deleted = apply(file_path, diff_text)
-            return f"SUCCESS (+{lines_added},-{lines_deleted})"
-            
-        except FileNotFoundError as e:
-            rel_path = os.path.relpath(file_path, self.workspace)
-            return f"Cannot apply diff: File does not exist: {rel_path}"
-        except Exception as e:
-            rel_path = os.path.relpath(file_path, self.workspace)
-            logger.error(f"Error applying diff to file {rel_path}: {e}")
-            return f"Error applying diff to file {rel_path}: {str(e)}"
