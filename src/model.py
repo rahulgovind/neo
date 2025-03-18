@@ -1,6 +1,6 @@
 """
 Model module provides abstraction over LLM clients using the OpenAI API format.
-With added support for session-based request tracking.
+With added support for session-based request tracking and improved function call handling.
 """
 
 import os
@@ -9,8 +9,9 @@ import logging
 import datetime
 import json
 import textwrap
+import ast
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import openai
 
 from src.logging import StructuredLogger
@@ -58,6 +59,11 @@ class FunctionResult(ContentBlock):
         return f"✿RESULT✿: {self.result}"
 
 
+class InvalidFunctionArgsError(Exception):
+    """Exception raised when function arguments are not a valid Python dictionary."""
+    pass
+
+
 class Message:
     """
     Represents a message in the conversation with role and content blocks.
@@ -102,6 +108,9 @@ class Model:
     Note: The result above is not directly visible to the user. Process this result 
     based on prior instructions and continue your response accordingly.
     """)
+    
+    # Maximum number of retries for invalid function arguments
+    MAX_RETRIES = 3
     
     def __init__(self, session_id: Optional[str] = None):
         """
@@ -213,7 +222,7 @@ class Model:
             self.structured_logger.record("request", log_data)
             
             # Process the response and return
-            return self._postprocess(response)
+            return self._postprocess(response, messages)
             
         except Exception as e:
             logger.error(f"Error processing messages: {e}", exc_info=True)
@@ -311,9 +320,140 @@ class Model:
         
         return result
     
-    def _postprocess(self, response) -> Message:
+    def _validate_args_dict(self, args_str: str) -> Dict[str, Any]:
+        """
+        Validate and parse function arguments as a Python dictionary.
+        
+        Args:
+            args_str: String representation of function arguments
+            
+        Returns:
+            Dict[str, Any]: Parsed arguments as a dictionary
+            
+        Raises:
+            InvalidFunctionArgsError: If arguments are not a valid Python dictionary
+        """
+        args_str = args_str.strip()
+        
+        # First try to parse as JSON
+        try:
+            args_dict = json.loads(args_str)
+            if not isinstance(args_dict, dict):
+                raise InvalidFunctionArgsError(
+                    f"Function arguments must be a dictionary, got {type(args_dict).__name__}"
+                )
+            return args_dict
+        except json.JSONDecodeError:
+            pass
+        
+        # If JSON fails, try to parse as a Python dict using ast.literal_eval
+        try:
+            # Only evaluate if it looks like a dict
+            if args_str.startswith('{') and args_str.endswith('}'):
+                args_dict = ast.literal_eval(args_str)
+                if not isinstance(args_dict, dict):
+                    raise InvalidFunctionArgsError(
+                        f"Function arguments must be a dictionary, got {type(args_dict).__name__}"
+                    )
+                return args_dict
+            else:
+                raise InvalidFunctionArgsError(
+                    "Function arguments must be a valid Python dictionary enclosed in {}"
+                )
+        except (SyntaxError, ValueError) as e:
+            raise InvalidFunctionArgsError(
+                f"Invalid function arguments format: {str(e)}"
+            )
+    
+    def _create_retry_message(self, original_messages: List[Message], 
+                             func_name: str, args_str: str, error_msg: str) -> List[Dict[str, Any]]:
+        """
+        Create a retry message for the LLM to correct the function arguments format.
+        
+        Args:
+            original_messages: Original messages sent to the LLM
+            func_name: Name of the function being called
+            args_str: Original invalid arguments string
+            error_msg: Error message explaining the format issue
+            
+        Returns:
+            List[Dict[str, Any]]: Messages ready for sending to the LLM
+        """
+        # Preprocess the original messages
+        processed_messages = self._preprocess(original_messages)
+        
+        # Add a system message asking to correct the function arguments
+        retry_message = {
+            "role": "system",
+            "content": textwrap.dedent(f"""
+            Your previous response contained a function call to '{func_name}' with invalid arguments format:
+            
+            ```
+            {args_str}
+            ```
+            
+            Error: {error_msg}
+            
+            Please reformat your function call with valid Python dictionary syntax. 
+            Your arguments must be a valid Python dictionary. For example:
+            
+            ✿FUNCTION✿: {func_name}
+            ✿ARGS✿: {{"key1": "value1", "key2": 123}}
+            ✿END FUNCTION✿
+            
+            Do not include any other explanatory text, just respond with the corrected function call.
+            """)
+        }
+        
+        return processed_messages + [retry_message]
+    
+    def _extract_function_call(self, content: str) -> Tuple[str, str, str]:
+        """
+        Extract a single function call from content.
+        
+        Args:
+            content: Response content to extract function call from
+            
+        Returns:
+            Tuple[str, str, str]: Function name, arguments string, and remaining content
+            
+        Raises:
+            ValueError: If no function call is found or multiple calls are found
+        """
+        function_pattern = r"✿FUNCTION✿:\s*(.*?)\s*\n✿ARGS✿:\s*(.*?)\s*\n✿END FUNCTION✿"
+        matches = list(re.finditer(function_pattern, content, re.DOTALL))
+        
+        if not matches:
+            raise ValueError("No function call found in response")
+        
+        if len(matches) > 1:
+            # For simplicity, we'll just work with the first function call
+            logger.warning("Multiple function calls found, processing only the first one")
+        
+        match = matches[0]
+        func_name = match.group(1).strip()
+        args_str = match.group(2).strip()
+        
+        # Return any content after the function call
+        remaining = content[match.end():].strip()
+        
+        return func_name, args_str, remaining
+    
+    def _postprocess(self, response, original_messages: List[Message], 
+                    retry_count: int = 0) -> Message:
         """
         Process LLM response to extract text and function calls.
+        
+        Args:
+            response: LLM response object
+            original_messages: Original messages sent to the LLM
+            retry_count: Number of retries attempted for invalid function args
+            
+        Returns:
+            Message: Processed response as a Message object
+            
+        Raises:
+            InvalidFunctionArgsError: If function arguments are invalid after max retries
         """
         content = response.choices[0].message.content
         message = Message(role="assistant")
@@ -336,26 +476,32 @@ class Model:
             func_name = match.group(1).strip()
             args_str = match.group(2).strip()
             
-            # Attempt to parse arguments as JSON
+            # Validate and parse arguments
             try:
-                args_dict = json.loads(args_str)
-                if not isinstance(args_dict, dict):
-                    args_dict = {"raw_args": args_str}
-            except json.JSONDecodeError:
-                # If JSON parsing fails, try to safely evaluate as Python dict
-                try:
-                    # Only evaluate if it looks like a dict
-                    if args_str.startswith('{') and args_str.endswith('}'):
-                        args_dict = eval(args_str)
-                        if not isinstance(args_dict, dict):
-                            args_dict = {"raw_args": args_str}
-                    else:
-                        args_dict = {"raw_args": args_str}
-                except Exception:
-                    args_dict = {"raw_args": args_str}
-                    logger.debug(f"Failed to parse function args: {args_str}")
+                args_dict = self._validate_args_dict(args_str)
+                message.add_content(FunctionCall(func_name, args_dict))
+            except InvalidFunctionArgsError as e:
+                # If max retries reached, raise the error
+                if retry_count >= self.MAX_RETRIES:
+                    logger.error(f"Max retries reached for function call '{func_name}' with invalid args: {e}")
+                    raise InvalidFunctionArgsError(
+                        f"Failed to get valid function arguments after {self.MAX_RETRIES} retries: {e}"
+                    )
                 
-            message.add_content(FunctionCall(func_name, args_dict))
+                # Create retry message
+                retry_messages = self._create_retry_message(
+                    original_messages, func_name, args_str, str(e)
+                )
+                
+                # Send retry request
+                logger.info(f"Retrying with corrected function arguments format (attempt {retry_count + 1}/{self.MAX_RETRIES})")
+                retry_response = self.client.chat.completions.create(
+                    model=self._model,
+                    messages=retry_messages
+                )
+                
+                # Process the retry response
+                return self._postprocess(retry_response, original_messages, retry_count + 1)
             
             # Update last position
             last_pos = match.end()
