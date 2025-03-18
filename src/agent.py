@@ -41,7 +41,9 @@ class Agent:
         self.function_registry = function_registry
         self.instructions = instructions
         self.max_function_calls = max_function_calls
-        self.state = ""  # Initialize with empty state
+        
+        # Replace state with message history
+        self.message_history = []
         
         # Build function descriptions during initialization
         try:
@@ -67,8 +69,8 @@ class Agent:
         # Configure the model with the session ID
         self.model.set_session_id(session.get_session_id())
         
-        # Reset state for new session
-        self.state = ""
+        # Reset message history for new session
+        self.message_history = []
         
         logger.info(f"Created new session with ID: {session.get_session_id()}")
         return session
@@ -92,8 +94,8 @@ class Agent:
             # Extract text response (filtering out function calls)
             text_response = self._extract_text_response(response)
             
-            # Update conversation state
-            self._update_state(user_message, text_response)
+            # Update message history with this exchange
+            self._update_message_history(user_message, text_response)
             
             logger.info("User message processed successfully")
             return text_response
@@ -106,6 +108,7 @@ class Agent:
     def _build_initial_messages(self, user_message: str) -> List[Message]:
         """
         Build the initial list of messages with context for the LLM.
+        Includes system instructions and up to 5 previous message pairs.
         """
         # System message with instructions and function info (if available)
         system_message = Message(role="system")
@@ -115,16 +118,20 @@ class Agent:
         if self.function_info:
             system_message.add_content(TextBlock(self.function_info))
         
-        # Add state message if we have meaningful state
+        # Initialize messages list with the system message
         messages = [system_message]
-        if self.state:
-            state_message = Message(role="system")
-            state_message.add_content(TextBlock(
-                f"Current conversation state:\n{self.state}"
-            ))
-            messages.append(state_message)
         
-        # Add user message
+        # Add up to 5 previous message pairs from history
+        for msg_pair in self.message_history[-5:]:
+            user_msg = Message(role="user")
+            user_msg.add_content(TextBlock(msg_pair["user"]))
+            messages.append(user_msg)
+            
+            assistant_msg = Message(role="assistant")
+            assistant_msg.add_content(TextBlock(msg_pair["assistant"]))
+            messages.append(assistant_msg)
+        
+        # Add current user message
         user_msg = Message(role="user")
         user_msg.add_content(TextBlock(user_message))
         messages.append(user_msg)
@@ -222,52 +229,19 @@ class Agent:
         
         return "".join(text_parts)
     
-    def _update_state(self, user_message: str, assistant_response: str) -> None:
+    def _update_message_history(self, user_message: str, assistant_response: str) -> None:
         """
-        Update the conversation state based on the latest exchange.
-        
-        The state maintenance is delegated to the LLM itself, allowing for
-        flexible and intelligent tracking of important conversation elements.
+        Update the message history with the latest exchange.
         """
-        # Skip state update if either message is empty
+        # Skip update if either message is empty
         if not user_message.strip() or not assistant_response.strip():
-            logger.debug("Skipping state update due to empty message")
+            logger.debug("Skipping history update due to empty message")
             return
             
-        try:
-            # Load and interpolate the state prompt
-            template_path = os.path.join("src", "prompts", "state.md")
-            state_prompt = load_and_interpolate_prompt(
-                template_path,
-                {
-                    "state": self.state,
-                    "user_message": user_message,
-                    "assistant_response": assistant_response
-                }
-            )
-            
-            # Create a system message with the state update prompt
-            state_message = Message(role="system")
-            state_message.add_content(TextBlock(state_prompt))
-            
-            # Get response from model
-            state_response = self.model.process([state_message])
-            
-            # Extract text response
-            response_text = self._extract_text_response(state_response)
-            
-            # Extract state from within delimiters using regex
-            state_pattern = r"✿STATE✿\s*([\s\S]*?)\s*✿END STATE✿"
-            match = re.search(state_pattern, response_text)
-            
-            if match:
-                # Set the new state directly without JSON validation
-                self.state = match.group(1).strip()
-                logger.debug("State updated successfully")
-            else:
-                logger.warning("State update did not contain properly formatted state, keeping current state")
-                
-        except Exception as e:
-            # Don't update state if there was an error
-            # This preserves the previous valid state
-            logger.error(f"Error updating state: {e}")
+        # Add the message pair to history
+        self.message_history.append({
+            "user": user_message.strip(),
+            "assistant": assistant_response.strip()
+        })
+        
+        logger.debug(f"Message history updated, now contains {len(self.message_history)} exchanges")

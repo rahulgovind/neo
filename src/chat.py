@@ -122,7 +122,7 @@ class Chat:
         "/clear": "Clear the conversation history",
         "/debug": "Toggle debug mode",
         "/session": "Show current session information",
-        "/load": "Load file(s) into context. Usage: /load file1.py file2.py",
+        "/load": "Load file(s) for the next message. Usage: /load file1.py file2.py",
     }
     
     def __init__(
@@ -146,7 +146,7 @@ class Chat:
         # Initialize session
         self.session = None
         
-        # Initialize loaded files list
+        # Initialize loaded files list - will be cleared after each use
         self.loaded_files = []
         
         # Determine history file location
@@ -243,12 +243,16 @@ class Chat:
                     if not user_input.strip():
                         continue
                     
-                    # Process input with session, including loaded files
+                    # Process input with session, including loaded files if present
                     logger.info("Sending user input to session")
                     if self.loaded_files:
                         # Combine loaded file contents and user input
                         full_input = self._create_context_with_loaded_files() + "\n\n" + user_input
                         response = self.session.process(full_input)
+                        
+                        # Clear loaded files after sending
+                        self.loaded_files = []
+                        logger.info("Loaded files have been used and cleared")
                     else:
                         # Process without additional context
                         response = self.session.process(user_input)
@@ -459,8 +463,7 @@ class Chat:
             self.session = self.agent.create_session()
             # Also clear loaded files
             self.loaded_files = []
-            self.console.print("[yellow]Loaded files cleared[/yellow]")
-            logger.info("Conversation history, agent state, and loaded files cleared with new session")
+            logger.info("Conversation history and session cleared")
             
         elif cmd == "/debug":
             self.debug_mode = not self.debug_mode
@@ -477,17 +480,21 @@ class Chat:
             
             # Also show currently loaded files
             if self.loaded_files:
-                self.console.print("\n[bold]Loaded Files:[/bold]")
+                self.console.print("\n[bold]Loaded Files for Next Message:[/bold]")
                 for file_path, _ in self.loaded_files:
                     self.console.print(f"  [cyan]{file_path}[/cyan]")
+                self.console.print("[yellow]Note: These files will only be included in your next message[/yellow]")
             else:
-                self.console.print("\n[dim]No files currently loaded[/dim]")
+                self.console.print("\n[dim]No files currently loaded for next message[/dim]")
                 
         elif cmd == "/load":
             if not args:
                 self.console.print("[yellow]Usage: /load file1.py file2.py ...[/yellow]")
                 return True
                 
+            # Clear previously loaded files
+            self.loaded_files = []
+            
             # Process each file
             loaded_count = 0
             for file_arg in args:
@@ -504,7 +511,8 @@ class Chat:
             
             # Summary message
             if loaded_count > 0:
-                self.console.print(f"[green]Successfully loaded {loaded_count} file(s)[/green]")
+                self.console.print(f"[green]Successfully loaded {loaded_count} file(s) for your next message[/green]")
+                self.console.print("[yellow]The loaded files will only be included in your next message and then cleared[/yellow]")
             
         else:
             self.console.print(f"[red]Unknown command: {cmd}[/red]")
