@@ -4,14 +4,15 @@ File system operation functions for the LLM agent.
 This module provides functions that allow the LLM to interact with the file system:
 - ReadFiles: Reading single or multiple files with wildcard support
 - UpdateFile: Creating or modifying files with content replacement or diff patching
+- TreeFile: Getting a tree view of files and directories with metadata
 """
 
 import os
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 from src.function import Function
-from src.files import read, update_with_content, apply
+from src.files import read, update_with_content, apply, tree
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -221,6 +222,110 @@ class UpdateFile(Function):
             Status message with line counts
         """
         try:
+
+
+class TreeFile(Function):
+    """
+    Returns a tree-like structure of files and directories starting from a given path.
+    
+    Features:
+    - Provides hierarchical view of files and directories
+    - Respects .gitignore files to exclude ignored files
+    - Includes file metadata like size in bytes and line count
+    - Sortable output for better organization
+    """
+    
+    def __init__(self, workspace):
+        """
+        Initialize with the root workspace directory.
+        
+        Args:
+            workspace: Absolute path to the workspace directory
+        """
+        self.workspace = workspace
+    
+    def name(self) -> str:
+        return "files.tree"
+    
+    def describe(self) -> Dict[str, Any]:
+        return {
+            "name": self.name(),
+            "description": "Get a tree view of files and directories in the workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the directory to list. Defaults to the root of the workspace."
+                    },
+                    "respect_gitignore": {
+                        "type": "boolean",
+                        "description": "Whether to respect .gitignore files. Default is true.",
+                        "default": True
+                    }
+                }
+            }
+        }
+    
+    def invoke(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Returns a tree representation of files and directories.
+        
+        Args:
+            args: Dictionary optionally containing 'path' and 'respect_gitignore' keys
+            
+        Returns:
+            Dictionary with tree structure of files and directories
+        """
+        # Default to the workspace root if no path is provided
+        path = args.get("path", "")
+        respect_gitignore = args.get("respect_gitignore", True)
+        
+        # Normalize path and ensure it's within workspace
+        workspace_path = self._normalize_path(path)
+        
+        # Get the tree structure
+        try:
+            tree_structure = tree(workspace_path, respect_gitignore)
+            rel_path = os.path.relpath(workspace_path, self.workspace)
+            return {
+                "path": rel_path if rel_path != "." else "",
+                "tree": tree_structure
+            }
+        except Exception as e:
+            logger.error(f"Error generating tree for {path}: {e}")
+            return {
+                "error": f"Failed to generate tree: {str(e)}"
+            }
+    
+    def _normalize_path(self, path: str) -> str:
+        """
+        Normalizes a path to ensure it's relative to the workspace.
+        
+        Args:
+            path: Path provided by the LLM
+            
+        Returns:
+            Normalized absolute path within the workspace
+        """
+        # Use workspace root if path is empty
+        if not path:
+            return self.workspace
+            
+        # Remove leading slash if present
+        if path.startswith('/'):
+            path = path[1:]
+            
+        # Construct the full path
+        full_path = os.path.join(self.workspace, path)
+        
+        # Ensure the path is within the workspace for security
+        # Using os.path.commonpath prevents directory traversal attacks
+        if not os.path.commonpath([self.workspace, os.path.realpath(full_path)]) == self.workspace:
+            logger.warning(f"Attempted to access path outside workspace: {path}")
+            return self.workspace
+            
+        return full_path
             success, lines_added, lines_deleted = apply(file_path, diff_text)
             return f"SUCCESS (+{lines_added},-{lines_deleted})"
             

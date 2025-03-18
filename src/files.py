@@ -9,10 +9,12 @@ This module provides the core logic for file operations:
 
 import os
 import logging
-from typing import Tuple, List
+import fnmatch
+from typing import Tuple, List, Dict, Any, Optional
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
 
 def read(path: str, include_line_numbers: bool = False) -> str:
     """
@@ -223,4 +225,170 @@ def _apply_diff(original_lines: List[str], diff_lines: List[str]) -> Tuple[int, 
         
         i += 1
     
+
+
+def tree(path: str, respect_gitignore: bool = True) -> List[Dict[str, Any]]:
+    """
+    Creates a tree representation of the file system starting at the given path.
+    
+    Args:
+        path: Path to the directory to create a tree from
+        respect_gitignore: Whether to respect .gitignore patterns
+        
+    Returns:
+        List of dictionaries representing the file system tree
+        Each dictionary has the format:
+        {
+            "type": "file" or "directory",
+            "name": name of the file or directory,
+            "children": list of child dictionaries (for directories),
+            "size": {"bytes": size in bytes, "lines": number of lines} (for files)
+        }
+    """
+    logger.info(f"Creating tree for path: {path}")
+    
+    if not os.path.exists(path):
+        logger.warning(f"Path does not exist: {path}")
+        return []
+    
+    # Get gitignore patterns if needed
+    gitignore_patterns = []
+    if respect_gitignore:
+        gitignore_patterns = _get_gitignore_patterns(path)
+    
+    # If path is a file, return a single node
+    if os.path.isfile(path):
+        return [_create_file_node(path, os.path.basename(path))]
+    
+    # If path is a directory, create a tree
+    return _create_directory_tree(path, gitignore_patterns)
+
+
+def _get_gitignore_patterns(start_path: str) -> List[str]:
+    """
+    Collects all gitignore patterns from .gitignore files in the path hierarchy.
+    
+    Args:
+        start_path: Path to start looking for .gitignore files
+        
+    Returns:
+        List of gitignore patterns
+    """
+    patterns = []
+    
+    # Check for .gitignore in the current directory
+    gitignore_path = os.path.join(start_path, ".gitignore")
+    if os.path.isfile(gitignore_path):
+        try:
+            with open(gitignore_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if line and not line.startswith("#"):
+                        patterns.append(line)
+            logger.debug(f"Found .gitignore with {len(patterns)} patterns")
+        except Exception as e:
+            logger.warning(f"Error reading .gitignore: {e}")
+    
+    return patterns
+
+
+def _should_ignore(path: str, rel_path: str, gitignore_patterns: List[str]) -> bool:
+    """
+    Checks if a path should be ignored based on gitignore patterns.
+    
+    Args:
+        path: Absolute path to check
+        rel_path: Path relative to the root directory
+        gitignore_patterns: List of gitignore patterns
+        
+    Returns:
+        True if the path should be ignored, False otherwise
+    """
+    # Always ignore .git directory
+    if ".git" in rel_path.split(os.sep):
+        return True
+        
+    # Check each pattern
+    for pattern in gitignore_patterns:
+        # Handle negation (patterns that start with !)
+        if pattern.startswith("!"):
+            if fnmatch.fnmatch(rel_path, pattern[1:]):
+                return False
+        # Handle directory-only patterns (patterns that end with /)
+        elif pattern.endswith("/") and os.path.isdir(path):
+            if fnmatch.fnmatch(rel_path, pattern[:-1] + "*"):
+                return True
+        # Handle regular patterns
+        elif fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(os.path.basename(path), pattern):
+            return True
+    
+    return False
+
+
+def _create_file_node(path: str, name: str) -> Dict[str, Any]:
+    """
+    Creates a node representing a file.
+    
+    Args:
+        path: Path to the file
+        name: Name of the file
+        
+    Returns:
+        Dictionary representing the file
+    """
+    size_bytes = os.path.getsize(path)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+            lines = count_lines(content)
+    except (UnicodeDecodeError, PermissionError):
+        # If we can't read the file as text, assume it's binary
+        lines = None
+    
+    return {
+        "type": "file",
+        "name": name,
+        "size": {"bytes": size_bytes, "lines": lines}
+    }
+
+
+def _create_directory_tree(path: str, gitignore_patterns: List[str]) -> List[Dict[str, Any]]:
+    """
+    Creates a tree representation of a directory.
+    
+    Args:
+        path: Path to the directory
+        gitignore_patterns: List of gitignore patterns to respect
+        
+    Returns:
+        List of dictionaries representing the directory contents
+    """
+    result = []
+    root_path = path
+    
+    try:
+        for item in sorted(os.listdir(path)):
+            item_path = os.path.join(path, item)
+            rel_path = os.path.relpath(item_path, root_path)
+            
+            # Check if this item should be ignored
+            if _should_ignore(item_path, rel_path, gitignore_patterns):
+                continue
+                
+            if os.path.isdir(item_path):
+                children = _create_directory_tree(item_path, gitignore_patterns)
+                result.append({
+                    "type": "directory",
+                    "name": item,
+                    "children": children
+                })
+            else:
+                result.append(_create_file_node(item_path, item))
+    except PermissionError:
+        logger.warning(f"Permission denied for {path}")
+    except Exception as e:
+        logger.error(f"Error creating directory tree for {path}: {e}")
+    
+    return result
     return lines_added, lines_deleted, new_content
