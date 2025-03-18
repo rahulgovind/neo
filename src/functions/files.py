@@ -12,7 +12,6 @@ import logging
 from typing import Dict, Any, List, Optional
 
 from src.function import Function, Example
-from src.files import read, update_with_content, apply, tree
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -82,6 +81,8 @@ class ReadFile(Function):
         
         path = args["path"]
         
+        # Import read function here to avoid circular imports
+        from src.files import read
         return read(path, include_line_numbers=True)
 
 
@@ -221,6 +222,8 @@ class UpdateFile(Function):
             Status message with line counts
         """
         try:
+            # Import update_with_content function here to avoid circular imports
+            from src.files import update_with_content
             success, lines_added, lines_deleted = update_with_content(file_path, content)
             return f"SUCCESS (+{lines_added},-{lines_deleted})"
             
@@ -245,6 +248,8 @@ class UpdateFile(Function):
             Status message with line counts
         """
         try:
+            # Import apply function here to avoid circular imports
+            from src.files import apply
             success, lines_added, lines_deleted = apply(file_path, diff_text)
             return f"SUCCESS (+{lines_added},-{lines_deleted})"
             
@@ -358,6 +363,8 @@ class TreeFile(Function):
         
         # Get the tree structure
         try:
+            # Import tree function here to avoid circular imports
+            from src.files import tree
             tree_structure = tree(workspace_path, respect_gitignore)
             rel_path = os.path.relpath(workspace_path, self.workspace)
             return {
