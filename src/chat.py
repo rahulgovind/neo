@@ -16,6 +16,7 @@ from typing import Optional, Callable, Dict, Any, List
 from rich.console import Console
 import glob
 from rich.markdown import Markdown
+from prompt_toolkit.key_binding import KeyBindings
 from rich.panel import Panel
 from rich.prompt import Prompt
 from prompt_toolkit import PromptSession
