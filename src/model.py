@@ -4,7 +4,6 @@ With added support for session-based request tracking and improved function call
 """
 
 import os
-import re
 import logging
 import datetime
 import json
@@ -18,6 +17,12 @@ from src.logging import StructuredLogger
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Special delimiter constants for function calls and results
+FUNCTION_START = "✿FUNCTION✿"
+ARGS_START = "✿ARGS✿"
+FUNCTION_END = "✿END FUNCTION✿"
+RESULT_START = "✿RESULT✿"
 
 
 class ContentBlock:
@@ -46,7 +51,7 @@ class FunctionCall(ContentBlock):
         
     def __str__(self) -> str:
         args_str = json.dumps(self.args, ensure_ascii=False)
-        return f"✿FUNCTION✿: {self.name}\n✿ARGS✿: {args_str}\n✿END FUNCTION✿"
+        return f"{FUNCTION_START}: {self.name}\n{ARGS_START}: {args_str}\n{FUNCTION_END}"
 
 
 class FunctionResult(ContentBlock):
@@ -56,7 +61,7 @@ class FunctionResult(ContentBlock):
         self.result = result
         
     def __str__(self) -> str:
-        return f"✿RESULT✿: {self.result}"
+        return f"{RESULT_START}: {self.result}"
 
 
 class InvalidFunctionArgsError(Exception):
@@ -397,9 +402,9 @@ class Model:
             Please reformat your function call with valid Python dictionary syntax. 
             Your arguments must be a valid Python dictionary. For example:
             
-            ✿FUNCTION✿: {func_name}
-            ✿ARGS✿: {{"key1": "value1", "key2": 123}}
-            ✿END FUNCTION✿
+            {FUNCTION_START}: {func_name}
+            {ARGS_START}: {{"key1": "value1", "key2": 123}}
+            {FUNCTION_END}
             
             Do not include any other explanatory text, just respond with the corrected function call.
             """)
@@ -409,7 +414,7 @@ class Model:
     
     def _extract_function_call(self, content: str) -> Tuple[str, str, str]:
         """
-        Extract a single function call from content.
+        Extract a single function call from content using string manipulation.
         
         Args:
             content: Response content to extract function call from
@@ -418,31 +423,39 @@ class Model:
             Tuple[str, str, str]: Function name, arguments string, and remaining content
             
         Raises:
-            ValueError: If no function call is found or multiple calls are found
+            ValueError: If no function call is found
         """
-        function_pattern = r"✿FUNCTION✿:\s*(.*?)\s*\n✿ARGS✿:\s*(.*?)\s*\n✿END FUNCTION✿"
-        matches = list(re.finditer(function_pattern, content, re.DOTALL))
-        
-        if not matches:
+        # Find the first function start
+        func_start_idx = content.find(f"{FUNCTION_START}:")
+        if func_start_idx == -1:
             raise ValueError("No function call found in response")
         
-        if len(matches) > 1:
-            # For simplicity, we'll just work with the first function call
-            logger.warning("Multiple function calls found, processing only the first one")
+        # Find the related parts
+        args_start_idx = content.find(f"{ARGS_START}:", func_start_idx)
+        if args_start_idx == -1:
+            raise ValueError(f"Function call missing {ARGS_START} marker")
+            
+        func_end_idx = content.find(FUNCTION_END, args_start_idx)
+        if func_end_idx == -1:
+            raise ValueError(f"Function call missing {FUNCTION_END} marker")
         
-        match = matches[0]
-        func_name = match.group(1).strip()
-        args_str = match.group(2).strip()
+        # Extract function name
+        func_name_start = func_start_idx + len(f"{FUNCTION_START}:")
+        func_name = content[func_name_start:args_start_idx].strip()
         
-        # Return any content after the function call
-        remaining = content[match.end():].strip()
+        # Extract arguments
+        args_start = args_start_idx + len(f"{ARGS_START}:")
+        args_str = content[args_start:func_end_idx].strip()
+        
+        # Extract remaining content
+        remaining = content[func_end_idx + len(FUNCTION_END):].strip()
         
         return func_name, args_str, remaining
     
     def _postprocess(self, response, original_messages: List[Message], 
-                    retry_count: int = 0) -> Message:
+                retry_count: int = 0) -> Message:
         """
-        Process LLM response to extract text and function calls.
+        Process LLM response to extract text and function calls using string manipulation.
         
         Args:
             response: LLM response object
@@ -455,67 +468,106 @@ class Model:
         Raises:
             InvalidFunctionArgsError: If function arguments are invalid after max retries
         """
-        content = response.choices[0].message.content
+        # Check if response or choices is None
+        if response is None or not hasattr(response, 'choices') or response.choices is None or len(response.choices) == 0:
+            logger.error("Received invalid or empty response from LLM")
+            message = Message(role="assistant")
+            message.add_content(TextBlock("I'm sorry, I encountered an error processing your request."))
+            return message
+        
+        # Check if first choice has a message
+        choice = response.choices[0]
+        if not hasattr(choice, 'message') or choice.message is None:
+            logger.error("Response choice doesn't have a message")
+            message = Message(role="assistant")
+            message.add_content(TextBlock("I'm sorry, I encountered an error processing your request."))
+            return message
+        
+        # Ensure message has content
+        if not hasattr(choice.message, 'content') or choice.message.content is None:
+            logger.error("Response message doesn't have content")
+            message = Message(role="assistant")
+            message.add_content(TextBlock("I'm sorry, I encountered an error processing your request."))
+            return message
+        
+        content = choice.message.content
         message = Message(role="assistant")
         
-        # Extract function calls using regex
-        function_pattern = r"✿FUNCTION✿:\s*(.*?)\s*\n✿ARGS✿:\s*(.*?)\s*\n✿END FUNCTION✿"
-        function_matches = re.finditer(function_pattern, content, re.DOTALL)
+        # Process the content by looking for function calls
+        remaining_content = content
         
-        # Track the last processed position
-        last_pos = 0
-        
-        for match in function_matches:
-            # Add any text before this function call
-            if match.start() > last_pos:
-                text = content[last_pos:match.start()].strip()
+        while FUNCTION_START in remaining_content:
+            # Find the position of the function call
+            func_start_pos = remaining_content.find(f"{FUNCTION_START}:")
+            
+            # If we have text before the function call, add it as a text block
+            if func_start_pos > 0:
+                text = remaining_content[:func_start_pos].strip()
                 if text:
                     message.add_content(TextBlock(text))
             
-            # Extract function name and arguments
-            func_name = match.group(1).strip()
-            args_str = match.group(2).strip()
-            
-            # Validate and parse arguments
             try:
-                args_dict = self._validate_args_dict(args_str)
-                message.add_content(FunctionCall(func_name, args_dict))
-            except InvalidFunctionArgsError as e:
-                # If max retries reached, raise the error
-                if retry_count >= self.MAX_RETRIES:
-                    logger.error(f"Max retries reached for function call '{func_name}' with invalid args: {e}")
-                    raise InvalidFunctionArgsError(
-                        f"Failed to get valid function arguments after {self.MAX_RETRIES} retries: {e}"
+                # Extract the function call details
+                func_name, args_str, remaining = self._extract_function_call(remaining_content)
+                
+                # Validate and parse arguments
+                try:
+                    args_dict = self._validate_args_dict(args_str)
+                    message.add_content(FunctionCall(func_name, args_dict))
+                except InvalidFunctionArgsError as e:
+                    # If max retries reached, raise the error
+                    if retry_count >= self.MAX_RETRIES:
+                        logger.error(f"Max retries reached for function call '{func_name}' with invalid args: {e}")
+                        raise InvalidFunctionArgsError(
+                            f"Failed to get valid function arguments after {self.MAX_RETRIES} retries: {e}"
+                        )
+                    
+                    # Create retry message
+                    retry_messages = self._create_retry_message(
+                        original_messages, func_name, args_str, str(e)
                     )
+                    
+                    # Send retry request
+                    logger.info(f"Retrying with corrected function arguments format (attempt {retry_count + 1}/{self.MAX_RETRIES})")
+                    retry_response = self.client.chat.completions.create(
+                        model=self._model,
+                        messages=retry_messages
+                    )
+                    
+                    # Process the retry response
+                    return self._postprocess(retry_response, original_messages, retry_count + 1)
                 
-                # Create retry message
-                retry_messages = self._create_retry_message(
-                    original_messages, func_name, args_str, str(e)
-                )
+                # Update the remaining content to process
+                remaining_content = remaining
                 
-                # Send retry request
-                logger.info(f"Retrying with corrected function arguments format (attempt {retry_count + 1}/{self.MAX_RETRIES})")
-                retry_response = self.client.chat.completions.create(
-                    model=self._model,
-                    messages=retry_messages
-                )
-                
-                # Process the retry response
-                return self._postprocess(retry_response, original_messages, retry_count + 1)
-            
-            # Update last position
-            last_pos = match.end()
+            except ValueError as e:
+                # If we can't properly extract a function call, log the error and stop processing
+                logger.error(f"Error extracting function call: {e}")
+                # Add the remaining content as text and exit the loop
+                if remaining_content:
+                    message.add_content(TextBlock(remaining_content.strip()))
+                break
         
-        # Add any remaining text after the last function call
-        if last_pos < len(content):
-            text = content[last_pos:].strip()
+        # Add any remaining content as text
+        if remaining_content and FUNCTION_START not in remaining_content:
+            # Remove any result blocks
+            result_idx = remaining_content.find(f"{RESULT_START}:")
+            if result_idx != -1:
+                # Find the end of the result block (next function or end of string)
+                next_func_idx = remaining_content.find(f"{FUNCTION_START}:", result_idx)
+                if next_func_idx != -1:
+                    # Remove the result block
+                    remaining_content = (
+                        remaining_content[:result_idx].strip() + 
+                        " " + 
+                        remaining_content[next_func_idx:].strip()
+                    )
+                else:
+                    # No more functions, just take the text before the result
+                    remaining_content = remaining_content[:result_idx].strip()
             
-            # Ignore any result blocks from the LLM response
-            # This processes the content but doesn't add ✿RESULT✿ blocks to the message
-            result_pattern = r"✿RESULT✿:.*?(?=✿FUNCTION✿:|$)"
-            text = re.sub(result_pattern, "", text, flags=re.DOTALL).strip()
-            
-            if text:
-                message.add_content(TextBlock(text))
+            # Add any non-empty remaining content
+            if remaining_content.strip():
+                message.add_content(TextBlock(remaining_content.strip()))
         
         return message

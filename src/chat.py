@@ -277,24 +277,34 @@ class Chat:
     
     def _signal_handler(self, sig: int, frame: Any) -> None:
         """
-        Handle system signals for graceful termination.
+        Handle system signals for immediate termination.
         
         Args:
             sig: Signal number
             frame: Current stack frame
         """
-        if sig == signal.SIGINT:
-            # For SIGINT (Ctrl+C), we'll let the main loop handle it via
-            # the KeyboardInterrupt exception, but still set running to False
-            # in case it's caught outside the input loop
-            logger.info("Received SIGINT, initiating shutdown")
-            self.running = False
-        else:
-            # For other signals like SIGTERM, initiate shutdown
-            logger.info(f"Received signal {sig}, shutting down")
-            self.running = False
-            # Exit more forcefully for external signals
-            sys.exit(0)
+        # Get signal name for logging
+        signal_name = "SIGINT" if sig == signal.SIGINT else "SIGTERM"
+        logger.info(f"Received {signal_name}, initiating immediate shutdown")
+        
+        # Set running to false
+        self.running = False
+        
+        # Perform cleanup operations
+        try:
+            self._cleanup()
+        except Exception as e:
+            logger.error(f"Error during cleanup on signal {signal_name}: {e}")
+        
+        # Print exit message to console
+        try:
+            self.console.print(f"\n[yellow]Received {signal_name} signal. Exiting immediately...[/yellow]")
+        except:
+            # Fallback if console printing fails
+            print(f"\nReceived {signal_name} signal. Exiting immediately...")
+        
+        # Exit immediately for both SIGINT and SIGTERM
+        sys.exit(0)
     
     def _print_welcome_message(self) -> None:
         """Display welcome message with optional workspace information."""

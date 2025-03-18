@@ -92,10 +92,12 @@ The CLI component ties everything together:
 Neo implements a custom function calling format instead of using OpenAI's native function calling:
 
 ```
-✿FUNCTION✿: function_name
-✿ARGS✿: {"arg1": "value1", "arg2": "value2"}
-✿END FUNCTION✿
+<SPECIAL_TOKEN>FUNCTION<SPECIAL_TOKEN>: function_name
+<SPECIAL_TOKEN>ARGS<SPECIAL_TOKEN>: {"arg1": "value1", "arg2": "value2"}
+<SPECIAL_TOKEN>END FUNCTION<SPECIAL_TOKEN>
 ```
+
+where <SPECIAL_TOKEN> = ✿
 
 **Rationale**: This approach provides flexibility to work with various LLM providers while maintaining a consistent interface, regardless of whether the underlying API supports function calling natively.
 

@@ -142,6 +142,8 @@ def apply(file_path: str, diff_text: str) -> Tuple[bool, int, int]:
         logger.warning(f"Cannot apply diff: File does not exist: {file_path}")
         raise FileNotFoundError(f"Cannot apply diff: File does not exist: {file_path}")
     
+    logger.info(f"Applying diff to file: {file_path} ({diff_text})")
+
     # Read the current file content
     with open(file_path, 'r', encoding='utf-8') as f:
         current_lines = f.read().splitlines()
@@ -224,6 +226,9 @@ def _apply_diff(original_lines: List[str], diff_lines: List[str]) -> Tuple[int, 
             current_line += 1
         
         i += 1
+    
+    # Return the results
+    return lines_added, lines_deleted, new_content
     
 
 
