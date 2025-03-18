@@ -1,0 +1,58 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+neo_env/
+.venv/
+.env
+
+# Environment and configuration
+.env
+# Keep the example file
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project specific
+# Workspaces created by the Neo CLI
+workspaces/
+
+# Test output
+.coverage
+coverage.xml
+.pytest_cache
+.mypy_cache
+
+# Documentation build
+docs/_build/
+docs/api/
+
+# Temporary files
+tmp/
+temp/
