@@ -41,15 +41,28 @@ class ReadFile(Function):
                     "path": {
                         "type": "string",
                         "description": "Path to the file to read."
-                    },
-                    "include_line_numbers": {
-                        "type": "boolean",
-                        "description": "Whether to include line numbers in the output.",
-                        "default": False
                     }
                 },
                 "required": ["path"]
-            }
+            },
+            "examples": [
+                {
+                    "description": "Read a Python file with line numbers",
+                    "function_call": {
+                        "name": "files.read",
+                        "arguments": {"path": "src/model.py"}
+                    },
+                    "result": "1 import os\n2 import logging\n3 ..."
+                },
+                {
+                    "description": "Read a configuration file",
+                    "function_call": {
+                        "name": "files.read",
+                        "arguments": {"path": "config.json"}
+                    },
+                    "result": "1 {\n2   \"debug\": true,\n3   \"port\": 8000\n4 }"
+                }
+            ]
         }
     
     def invoke(self, args: Dict[str, Any]) -> str:
@@ -57,7 +70,7 @@ class ReadFile(Function):
         Reads content from a single file at the specified path.
         
         Args:
-            args: Dictionary containing 'path' key and optional 'include_line_numbers' key
+            args: Dictionary containing 'path' key.
             
         Returns:
             File contents with optional line numbers, or error message
@@ -70,9 +83,8 @@ class ReadFile(Function):
             raise ValueError("Path argument is required")
         
         path = args["path"]
-        include_line_numbers = args.get("include_line_numbers", False)
         
-        return read(path, include_line_numbers)
+        return read(path, include_line_numbers=True)
 
 
 class UpdateFile(Function):
@@ -108,17 +120,37 @@ class UpdateFile(Function):
                         "type": "string",
                         "description": "Path to the file to create or update."
                     },
-                    "content": {
-                        "type": "string",
-                        "description": "The complete new content for the file. Use this for creating new files or completely replacing existing ones."
-                    },
                     "diff": {
                         "type": "string",
                         "description": "The diff to apply to the existing file. Use this for making targeted changes to existing files."
                     }
                 },
                 "required": ["path"]
-            }
+            },
+            "examples": [
+                {
+                    "description": "Apply a simple diff to update a configuration value",
+                    "function_call": {
+                        "name": "files.update",
+                        "arguments": {
+                            "path": "src/config.py",
+                            "diff": "--- src/config.py\n+++ src/config.py\n@@ -1,5 +1,5 @@\n DEBUG = False\n-PORT = 8000\n+PORT = 9000\n"
+                        }
+                    },
+                    "result": "SUCCESS (+1,-1)"
+                },
+                {
+                    "description": "Apply a diff to add a new function",
+                    "function_call": {
+                        "name": "files.update",
+                        "arguments": {
+                            "path": "src/utils.py",
+                            "diff": "--- src/utils.py\n+++ src/utils.py\n@@ -45,3 +45,8 @@\n     return formatted_data\n \n # End of existing functions\n+\n+def validate_config(config):\n+    \"\"\"Validate the configuration object.\"\"\"\n+    return all(key in config for key in ['api_key', 'endpoint'])\n"
+                        }
+                    },
+                    "result": "SUCCESS (+5,-0)"
+                }
+            ]
         }
     
     def invoke(self, args: Dict[str, Any]) -> str:
@@ -141,24 +173,21 @@ class UpdateFile(Function):
             ValueError: If path is missing or neither content nor diff is provided
         """
         if "path" not in args:
-            logger.error("Path not provided to UpdateFile function")
+            logger.error("Path not provided to files.update function")
             raise ValueError("Path argument is required")
         
         path = args["path"]
         
         # Validate that either content or diff is provided
-        if "content" not in args and "diff" not in args:
-            logger.error("Neither content nor diff provided to UpdateFile function")
-            raise ValueError("Either content or diff argument must be provided")
+        if "diff" not in args:
+            logger.error("Diff not provided to files.update function")
+            raise ValueError("Diff not provided to files.update function")
         
         # Normalize path and ensure it's within workspace
         normalized_path = self._normalize_path(path)
         
         # Choose update mode based on provided arguments
-        if "content" in args:
-            return self._update_with_content(normalized_path, args["content"])
-        else:
-            return self._update_with_diff(normalized_path, args["diff"])
+        return self._update_with_diff(normalized_path, args["diff"])
     
     def _normalize_path(self, path: str) -> str:
         """
