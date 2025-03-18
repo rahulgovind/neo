@@ -14,20 +14,92 @@ import time
 from typing import Optional, Callable, Dict, Any, List
 
 from rich.console import Console
+import glob
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.completion import Completer, Completion, WordCompleter, merge_completers
+from prompt_toolkit.document import Document
 from prompt_toolkit.completion import WordCompleter
-from prompt_toolkit.key_binding import KeyBindings
 
 from src.agent import Agent
 from src.session import Session
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+class PathCompleter(Completer):
+    """
+    Custom completer for filesystem paths relative to a workspace.
+    
+    This completer suggests files and directories when completing paths,
+    making it easier to navigate the workspace when using the /load command.
+    """
+    
+    def __init__(self, workspace: str):
+        """
+        Initialize the path completer.
+        
+        Args:
+            workspace: Base directory for path completion
+        """
+        self.workspace = os.path.abspath(workspace)
+    
+    def get_completions(self, document: Document, complete_event=None):
+        """
+        Yield completions for the current path.
+        
+        Args:
+            document: The current document (input text)
+            complete_event: The completion event
+            
+        Yields:
+            Completion objects for matching paths
+        """
+        # Only provide completions for /load command
+        text = document.text
+        if not text.startswith("/load "):
+            return
+            
+        # Extract the part of text we want to complete (after /load and space)
+        path_to_complete = text[len("/load "):].strip()
+        
+        # Generate the absolute path to search in
+        if os.path.isabs(path_to_complete):
+            base_path = path_to_complete
+        else:
+            base_path = os.path.join(self.workspace, path_to_complete)
+            
+        # Get the directory to look in and the prefix to match
+        if os.path.isdir(base_path):
+            directory = base_path
+            prefix = ''
+        else:
+            directory = os.path.dirname(base_path) or '.'
+            prefix = os.path.basename(base_path)
+            
+        # Convert directory to absolute path if needed
+        if not os.path.isabs(directory):
+            directory = os.path.join(self.workspace, directory)
+            
+        # Get all matching files and directories
+        try:
+            names = os.listdir(directory)
+            for name in sorted(names):
+                if name.startswith(prefix):
+                    # Get the full path
+                    full_path = os.path.join(directory, name)
+                    # Determine if it's a directory (add trailing slash if so)
+                    display_name = name + ('/' if os.path.isdir(full_path) else '')
+                    # Calculate what to insert and where to position cursor
+                    yield Completion(display_name, start_position=-len(prefix))
+        except Exception as e:
+            # If directory doesn't exist or can't be read, don't offer completions
+            logger.debug(f"Path completion error: {e}")
 
 
 class Chat:
@@ -98,11 +170,20 @@ class Chat:
             event.app.exit()
         
         # Initialize prompt session with history, auto-suggestion and key bindings
+        # Use a combined completer for commands and file paths
+        command_completer = WordCompleter(list(self.COMMANDS.keys()))
+        path_completer = PathCompleter(workspace)
+        
+        # Merge completers - command completer has higher priority
+        completers = merge_completers([
+            command_completer,
+            path_completer
+        ])
+        
         self.session_prompt = PromptSession(
             history=FileHistory(self.history_file),
             auto_suggest=AutoSuggestFromHistory(),
-            # Auto-complete for commands
-            completer=WordCompleter(list(self.COMMANDS.keys())),
+            completer=completers,
             key_bindings=kb
         )
         
