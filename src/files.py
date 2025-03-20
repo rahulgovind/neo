@@ -4,13 +4,16 @@ Core file system operations.
 This module provides the core logic for file operations:
 - read: Read file contents with optional line numbering
 - update_with_content: Replace a file's contents completely
-- apply: Apply a diff to a file
+- patch: Apply a diff to a file using the system's patch CLI tool
 """
 
 import os
 import logging
 import fnmatch
+import subprocess
+import tempfile
 from typing import Tuple, List, Dict, Any, Optional
+from dataclasses import dataclass
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -123,9 +126,9 @@ def update_with_content(file_path: str, content: str) -> Tuple[bool, int, int]:
     
     return True, lines_added, lines_deleted
 
-def apply(file_path: str, diff_text: str) -> Tuple[bool, int, int]:
+def patch(file_path: str, diff_text: str) -> Tuple[bool, int, int]:
     """
-    Updates a file by applying a diff/patch.
+    Updates a file by applying a diff/patch using the system's 'patch' command.
     
     Args:
         file_path: Full path to the file
@@ -139,98 +142,64 @@ def apply(file_path: str, diff_text: str) -> Tuple[bool, int, int]:
         Various other exceptions related to file operations
     """
     if not os.path.exists(file_path):
-        logger.warning(f"Cannot apply diff: File does not exist: {file_path}")
-        raise FileNotFoundError(f"Cannot apply diff: File does not exist: {file_path}")
+        logger.warning(f"Cannot apply patch: File does not exist: {file_path}")
+        raise FileNotFoundError(f"Cannot apply patch: File does not exist: {file_path}")
     
-    logger.info(f"Applying diff to file: {file_path} ({diff_text})")
-
-    # Read the current file content
+    logger.info(f"Applying patch to file: {file_path}")
+    
+    # Read the current file content to count original lines
     with open(file_path, 'r', encoding='utf-8') as f:
-        current_lines = f.read().splitlines()
+        current_content = f.read()
+        old_lines = count_lines(current_content)
     
-    # Parse and apply the diff
-    lines_added, lines_deleted, new_content = _apply_diff(
-        current_lines, diff_text.splitlines()
-    )
+    # Create a temporary file for the patch
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.patch') as temp_file:
+        temp_patch_path = temp_file.name
+        temp_file.write(diff_text)
     
-    # Write the new content
-    with open(file_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(new_content))
-    
-    logger.info(f"Applied diff to file: {file_path} (+{lines_added},-{lines_deleted})")
-    return True, lines_added, lines_deleted
-
-def _apply_diff(original_lines: List[str], diff_lines: List[str]) -> Tuple[int, int, List[str]]:
-    """
-    Applies a unified diff to a list of lines.
-    
-    This is a simplified implementation that handles basic unified diff format:
-    - Lines starting with '---' or '+++' are skipped (file headers)
-    - Lines starting with '@@' are parsed for chunk information
-    - Lines starting with '+' are additions
-    - Lines starting with '-' are deletions
-    - Lines starting with ' ' or without prefix are context lines
-    
-    Args:
-        original_lines: Original file content as a list of lines
-        diff_lines: Unified diff as a list of lines
+    try:
+        # Apply the patch using the system patch command
+        # -u for unified diff format, --forward forces patch to apply even if the patch seems reversed
+        # -N for treating non-existent files as empty, -r rejects file to put rejected hunks in
+        result = subprocess.run(
+            ['patch', '-u', '--forward', '-N', file_path, '-i', temp_patch_path],
+            capture_output=True, 
+            text=True
+        )
         
-    Returns:
-        Tuple containing (lines_added, lines_deleted, new_content)
-    """
-    new_content = original_lines.copy()
-    lines_added = 0
-    lines_deleted = 0
-    
-    # Skip file headers (--- and +++)
-    i = 0
-    while i < len(diff_lines) and (diff_lines[i].startswith('---') or diff_lines[i].startswith('+++')):
-        i += 1
-    
-    # Process each chunk
-    while i < len(diff_lines):
-        line = diff_lines[i]
+        # Check if patch applied successfully
+        if result.returncode != 0:
+            logger.error(f"Patch failed: {result.stderr}")
+            raise Exception(f"Patch failed: {result.stderr}")
         
-        # Parse chunk header (@@ -start,count +start,count @@)
-        if line.startswith('@@'):
-            # Extract the line numbers from the chunk header
-            # Format: @@ -start,count +start,count @@
-            chunk_info = line.split('@@')[1].strip()
-            old_info, new_info = chunk_info.split(' ')
-            
-            # Parse the old file line information (format: -start,count)
-            old_start = int(old_info.split(',')[0][1:])
-            
-            # Adjust for 0-based indexing
-            current_line = old_start - 1
-            
-            i += 1
-            continue
+        # Read the new file content to calculate line changes
+        with open(file_path, 'r', encoding='utf-8') as f:
+            new_content = f.read()
+            new_lines = count_lines(new_content)
         
-        # Process addition, deletion, or context lines
-        if line.startswith('+'):
-            # Addition
-            new_content.insert(current_line, line[1:])
-            current_line += 1
-            lines_added += 1
-        elif line.startswith('-'):
-            # Deletion
-            if 0 <= current_line < len(new_content):
-                new_content.pop(current_line)
-                lines_deleted += 1
-            else:
-                # This shouldn't happen with valid diffs
-                logger.warning(f"Invalid line number in diff: {current_line}")
-        else:
-            # Context line (space or no prefix)
-            current_line += 1
+        # Calculate changes
+        lines_added = max(new_lines - old_lines, 0)
+        lines_deleted = max(old_lines - new_lines, 0)
         
-        i += 1
+        logger.info(f"Applied patch to file: {file_path} (+{lines_added},-{lines_deleted})")
+        
+        # Parse the patch output to get more accurate added/deleted line counts
+        for line in result.stdout.splitlines():
+            if line.startswith("patching file"):
+                continue
+            logger.debug(f"Patch output: {line}")
+        
+        return True, lines_added, lines_deleted
     
-    # Return the results
-    return lines_added, lines_deleted, new_content
-    
-
+    except Exception as e:
+        logger.error(f"Error applying patch to file {file_path}: {e}")
+        raise
+    finally:
+        # Remove the temporary patch file
+        try:
+            os.unlink(temp_patch_path)
+        except Exception as e:
+            logger.warning(f"Failed to remove temporary patch file: {e}")
 
 def tree(path: str, respect_gitignore: bool = True) -> List[Dict[str, Any]]:
     """

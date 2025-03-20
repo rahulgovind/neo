@@ -248,18 +248,18 @@ class UpdateFile(Function):
             Status message with line counts
         """
         try:
-            # Import apply function here to avoid circular imports
-            from src.files import apply
-            success, lines_added, lines_deleted = apply(file_path, diff_text)
+            # Import patch function here to avoid circular imports
+            from src.files import patch
+            success, lines_added, lines_deleted = patch(file_path, diff_text)
             return f"SUCCESS (+{lines_added},-{lines_deleted})"
             
         except FileNotFoundError as e:
             rel_path = os.path.relpath(file_path, self.workspace)
-            return f"Cannot apply diff: File does not exist: {rel_path}"
+            return f"Cannot apply patch: File does not exist: {rel_path}"
         except Exception as e:
             rel_path = os.path.relpath(file_path, self.workspace)
-            logger.error(f"Error applying diff to file {rel_path}: {e}")
-            return f"Error applying diff to file {rel_path}: {str(e)}"
+            logger.error(f"Error applying patch to file {rel_path}: {e}")
+            return f"Error applying patch to file {rel_path}: {str(e)}"
 
 
 class TreeFile(Function):
