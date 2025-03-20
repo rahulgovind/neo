@@ -10,7 +10,6 @@ import re
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 
 from src.model import Model, Message, TextBlock, FunctionCall, FunctionResult
-from collections import deque
 from src.function import FunctionRegistry, Example
 from src.utils.parse_prompt import load_and_interpolate_prompt
 
@@ -223,7 +222,7 @@ class Agent:
         Extract only the text content from a response, filtering out function calls.
         """
         text_parts = []
-    def _update_history(self, user_message: str, assistant_response: str) -> None:
+        
         for block in response.content:
             if isinstance(block, TextBlock):
                 text_parts.append(block.text)

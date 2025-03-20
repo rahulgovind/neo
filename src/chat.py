@@ -245,7 +245,7 @@ class Chat:
                     
                     # Process input with session, including loaded files if present
                     logger.info("Sending user input to session")
-                    if self.loaded_files is not None:
+                    if self.loaded_files:
                         # Combine loaded file contents and user input
                         full_input = self._create_context_with_loaded_files() + "\n\n" + user_input
                         response = self.session.process(full_input)
@@ -256,8 +256,6 @@ class Chat:
                     else:
                         # Process without additional context
                         response = self.session.process(user_input)
-                    
-                    # Display a notice if files were included
                     
                     # Display the response
                     self._display_response(response)
@@ -295,7 +293,7 @@ class Chat:
             logger.critical(f"Critical error in chat session: {e}", exc_info=True)
             self.console.print(f"\n[bold red]Critical error:[/bold red] {str(e)}")
             
-
+        finally:
             # Ensure we always clean up, even after errors
             self._cleanup()
     
@@ -458,7 +456,7 @@ class Chat:
             self._show_help()
             
         elif cmd == "/clear":
-            self.loaded_files = None
+            # Visual separation for "clearing" the screen
             self.console.print("\n" * 20)
             self._print_welcome_message()
             # Reset agent state and create new session
@@ -474,10 +472,10 @@ class Chat:
             logger.info(f"Debug mode {status}")
             
         elif cmd == "/session":
-            if self.loaded_files is not None:
+            # Display current session information
             session_id = self.session.get_session_id() if self.session else "No active session"
-                for file_path, _ in self.loaded_files:
-                    self.console.print(f"  [cyan]{file_path}[/cyan]")
+            self.console.print(f"[bold]Current Session:[/bold] [magenta]{session_id}[/magenta]")
+            logs_dir = os.path.join(os.path.expanduser("~"), ".neo", "requests", session_id)
             self.console.print(f"[bold]Session Logs:[/bold] [cyan]{logs_dir}[/cyan]")
             
             # Also show currently loaded files
@@ -507,10 +505,6 @@ class Chat:
                     self.loaded_files.append((file_arg, result))
                     self.console.print(f"[green]Loaded: {file_arg}[/green]")
                     loaded_count += 1
-                self.console.print("[yellow]Files will be included with your next message only[/yellow]")
-            elif self.loaded_files is not None and len(self.loaded_files) > 0:
-                # There were already files loaded
-                self.console.print("[yellow]These files will be included with your next message only[/yellow]")
                 else:
                     # Show error message
                     self.console.print(f"[red]{result}[/red]")
