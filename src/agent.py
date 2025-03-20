@@ -10,6 +10,7 @@ import re
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 
 from src.model import Model, Message, TextBlock, FunctionCall, FunctionResult
+from collections import deque
 from src.function import FunctionRegistry, Example
 from src.utils.parse_prompt import load_and_interpolate_prompt
 
@@ -40,7 +41,8 @@ class Agent:
         self.model = model
         self.function_registry = function_registry
         self.instructions = instructions
-        self.max_function_calls = max_function_calls
+        # Store history as a deque to efficiently manage conversation rounds
+        self.message_history = deque(maxlen=10)  # 5 rounds = 10 messages (user + assistant pairs)
         self.state = ""  # Initialize with empty state
         
         # Build function descriptions during initialization
@@ -66,7 +68,7 @@ class Agent:
         
         # Configure the model with the session ID
         self.model.set_session_id(session.get_session_id())
-        
+        self.message_history.clear()
         # Reset state for new session
         self.state = ""
         
@@ -91,7 +93,7 @@ class Agent:
             
             # Extract text response (filtering out function calls)
             text_response = self._extract_text_response(response)
-            
+            self._update_history(user_message, text_response)
             # Update conversation state
             self._update_state(user_message, text_response)
             
@@ -114,15 +116,20 @@ class Agent:
         # Only add function info if we have functions registered
         if self.function_info:
             system_message.add_content(TextBlock(self.function_info))
-        
-        # Add state message if we have meaningful state
         messages = [system_message]
-        if self.state:
-            state_message = Message(role="system")
-            state_message.add_content(TextBlock(
-                f"Current conversation state:\n{self.state}"
-            ))
-            messages.append(state_message)
+        
+        # Add up to 5 previous message pairs (user and assistant) to provide context
+        if self.message_history:
+            # Convert deque to list for easier slicing from the end
+            history_list = list(self.message_history)
+            
+            # Add up to the last 5 user/assistant message pairs (10 messages total)
+            for msg in history_list:
+                user_msg = Message(role=msg["role"])
+                user_msg.add_content(TextBlock(msg["content"]))
+                messages.append(user_msg)
+                
+            logger.debug(f"Added {len(history_list)} messages from history")
         
         # Add user message
         user_msg = Message(role="user")
@@ -215,55 +222,21 @@ class Agent:
         Extract only the text content from a response, filtering out function calls.
         """
         text_parts = []
-        
+    def _update_history(self, user_message: str, assistant_response: str) -> None:
         for block in response.content:
-            if isinstance(block, TextBlock):
-                text_parts.append(block.text)
-        
-        return "".join(text_parts)
+        Update the conversation history with the latest exchange.
+        Maintains up to 5 rounds (user + assistant pairs) of conversation.
     
-    def _update_state(self, user_message: str, assistant_response: str) -> None:
+        # Skip history update if either message is empty
         """
-        Update the conversation state based on the latest exchange.
+            logger.debug("Skipping history update due to empty message")
         
         The state maintenance is delegated to the LLM itself, allowing for
-        flexible and intelligent tracking of important conversation elements.
-        """
-        # Skip state update if either message is empty
-        if not user_message.strip() or not assistant_response.strip():
-            logger.debug("Skipping state update due to empty message")
-            return
-            
-        try:
-            # Load and interpolate the state prompt
-            template_path = os.path.join("src", "prompts", "state.md")
-            state_prompt = load_and_interpolate_prompt(
-                template_path,
-                {
-                    "state": self.state,
-                    "user_message": user_message,
-                    "assistant_response": assistant_response
-                }
-            )
-            
-            # Create a system message with the state update prompt
-            state_message = Message(role="system")
-            state_message.add_content(TextBlock(state_prompt))
-            
-            # Get response from model
-            state_response = self.model.process([state_message])
-            
-            # Extract text response
-            response_text = self._extract_text_response(state_response)
-            
-            # Extract state from within delimiters using regex
-            state_pattern = r"✿STATE✿\s*([\s\S]*?)\s*✿END STATE✿"
-            match = re.search(state_pattern, response_text)
-            
-            if match:
-                # Set the new state directly without JSON validation
-                self.state = match.group(1).strip()
-                logger.debug("State updated successfully")
+        # Add user message and assistant response to history
+        self.message_history.append({"role": "user", "content": user_message})
+        self.message_history.append({"role": "assistant", "content": assistant_response})
+        
+        logger.debug(f"Updated conversation history, now contains {len(self.message_history)} messages")
             else:
                 logger.warning("State update did not contain properly formatted state, keeping current state")
                 
