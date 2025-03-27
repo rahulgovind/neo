@@ -1,5 +1,4 @@
-"""
-Agent module for managing conversations and function invocations with LLMs.
+"""Agent module for managing conversations and function invocations with LLMs.
 With added support for session-based interactions.
 """
 
@@ -42,7 +41,7 @@ class Agent:
         self.instructions = instructions
         self.max_function_calls = max_function_calls
         
-        # Replace state with message history
+        # Store message history
         self.message_history = []
         
         # Build function descriptions during initialization
@@ -90,7 +89,6 @@ class Agent:
             
             # Process messages, handling any function calls
             response = self._process_internal(messages)
-            # Extract text response (filtering out function calls)
             # Extract text response (filtering out function calls)
             text_response = self._extract_text_response(response)
             
