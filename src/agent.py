@@ -90,7 +90,7 @@ class Agent:
             
             # Process messages, handling any function calls
             response = self._process_internal(messages)
-            
+            # Extract text response (filtering out function calls)
             # Extract text response (filtering out function calls)
             text_response = self._extract_text_response(response)
             

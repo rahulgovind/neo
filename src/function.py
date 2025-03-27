@@ -152,7 +152,7 @@ class FunctionRegistry:
         
         This includes:
         - Function descriptions as JSON
-        - Example function calls and results
+        - Example function calls and results with clear Assistant/User roles
         
         Returns:
             Formatted string with function information
@@ -172,14 +172,16 @@ class FunctionRegistry:
                 func_examples = func.examples()
                 if func_examples:
                     for i, example in enumerate(func_examples):
-                        example_text = f"""
+                        example_text = textwrap.dedent(f"""\
                         Example {i+1} for {func_name} - {example.description}:
+
+                        Assistant:
                         ✿FUNCTION✿: {func_name}
                         ✿ARGS✿: {json.dumps(example.args, ensure_ascii=False)}
                         ✿END FUNCTION✿
-                        
-                        ✿RESULT✿: {example.result}
-                        """
+
+                        User:
+                        ✿RESULT✿: {example.result}""")
                         examples_text.append(example_text)
             
             # Build the examples section if we have examples
@@ -187,6 +189,7 @@ class FunctionRegistry:
             if examples_text:
                 examples_section = "\nHere are some example function calls:\n\n"
                 examples_section += "\n".join(examples_text)
+                examples_section += "\n\nNote: Only the user/system can provide the ✿RESULT✿ block."
             
             # Load the function calling prompt template and interpolate variables
             template_path = os.path.join("src", "prompts", "function_calling.md")

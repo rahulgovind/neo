@@ -41,13 +41,9 @@ class CLI:
     2. Providing relevant information and explanations
     3. Engaging in thoughtful conversation
     
-    If a workspace directory is available, you can also:
-    1. Read files from the workspace using read_files
-    2. Update files in the workspace using update_file
-    
-    Always explain your reasoning clearly and offer context for your suggestions.
-    When modifying files, make incremental, focused changes rather than rewriting everything,
-    and always confirm before making changes to files.
+    - You SHOULD explain your reasoning clearly and offer context for your suggestions. Do this prior to making any function calls.
+    - You MUST not write anything after a function call.
+    - YOU SHOULD make incremental, focused changes when modifying files rather than rewriting everything.
     
     Be helpful, accurate, and respectful in your interactions.
     """

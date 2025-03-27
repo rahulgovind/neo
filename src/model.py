@@ -200,6 +200,7 @@ class Model:
             request_data = {
                 "model": self._model,
                 "messages": processed_messages,
+                "stop": RESULT_START,
             }
             
             # Log a summary of the conversation
@@ -531,7 +532,8 @@ class Model:
                     logger.info(f"Retrying with corrected function arguments format (attempt {retry_count + 1}/{self.MAX_RETRIES})")
                     retry_response = self.client.chat.completions.create(
                         model=self._model,
-                        messages=retry_messages
+                        messages=retry_messages,
+                        stop=RESULT_START,
                     )
                     
                     # Process the retry response
