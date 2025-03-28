@@ -4,7 +4,6 @@ Core command module defining the Command interface.
 This module provides the foundation for all callable commands in the system:
 - Abstract Command interface that all concrete commands must implement
 - Support for CLI-like parameter parsing with positional and flag arguments
-- Manual documentation for each command
 - Example class for storing command usage examples
 """
 
@@ -39,81 +38,6 @@ class CommandParameter:
         # Validate parameter configuration        
         if self.is_flag and not (self.short_flag or self.long_flag):
             raise ValueError(f"Flag parameter {self.name} must have either short_flag or long_flag")
-
-
-@dataclass
-class CommandManual:
-    """Manual documentation for a command, similar to Unix man pages."""
-    
-    name: str
-    synopsis: str
-    description: str
-    parameters: List[CommandParameter]
-    examples: List[str] = field(default_factory=list)
-    see_also: List[str] = field(default_factory=list)
-    
-    def format(self) -> str:
-        """Format the manual as a string, similar to a man page."""
-        lines = []
-        
-        # NAME section
-        lines.append("NAME")
-        lines.append(f"    {self.name} - {self.synopsis}")
-        lines.append("")
-        
-        # DESCRIPTION section
-        lines.append("DESCRIPTION")
-        wrapped_desc = textwrap.fill(self.description, width=76, initial_indent="    ", 
-                                    subsequent_indent="    ")
-        lines.append(wrapped_desc)
-        lines.append("")
-        
-        # PARAMETERS section
-        if self.parameters:
-            lines.append("PARAMETERS")
-            
-            # First list positional parameters
-            positional = [p for p in self.parameters if p.is_positional]
-            if positional:
-                for param in positional:
-                    lines.append(f"    {param.name} - {param.description}")
-                    if param.required:
-                        lines.append("        Required: Yes")
-                    else:
-                        lines.append(f"        Required: No (Default: {param.default})")
-                    lines.append("")
-            
-            # Then list flag parameters
-            flags = [p for p in self.parameters if p.is_flag]
-            if flags:
-                for param in flags:
-                    flag_str = []
-                    if param.short_flag:
-                        flag_str.append(f"-{param.short_flag}")
-                    if param.long_flag:
-                        flag_str.append(f"--{param.long_flag}")
-                    
-                    lines.append(f"    {', '.join(flag_str)} - {param.description}")
-                    if param.required:
-                        lines.append("        Required: Yes")
-                    else:
-                        lines.append(f"        Required: No (Default: {param.default})")
-                    lines.append("")
-        
-        # EXAMPLES section
-        if self.examples:
-            lines.append("EXAMPLES")
-            for i, example in enumerate(self.examples, 1):
-                lines.append(f"    Example {i}:")
-                lines.append(f"        {example}")
-                lines.append("")
-        
-        # SEE ALSO section
-        if self.see_also:
-            lines.append("SEE ALSO")
-            lines.append(f"    {', '.join(self.see_also)}")
-        
-        return "\n".join(lines)
 
 
 @dataclass
@@ -248,4 +172,3 @@ class Command(ABC):
             # Return failure result with error message
             logger.error(f"Error executing command {self.__class__.__name__}: {str(e)}")
             return CommandResult(success=False, error=str(e))
-    
