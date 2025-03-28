@@ -12,7 +12,7 @@ import os
 import unittest
 import logging
 
-from src.model import Model, Message, TextBlock, FunctionResult
+from src.core.model import Model, Message, TextBlock, FunctionResult
 
 # Configure logging for the test
 logging.basicConfig(level=logging.INFO)

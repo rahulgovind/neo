@@ -39,7 +39,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "neo=src.cli:main",
+            "neo=src.apps.cli:main",
         ],
     },
     classifiers=[
