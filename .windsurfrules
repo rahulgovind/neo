@@ -1,0 +1,44 @@
+- Be concise with docstrings. 
+- Only add docstrings when the information provided is not implicitly clear from the parameter / function names or types.
+- Functions that are not used outside a given class i.e. functions that are considered "private" should have names prefixed with "_"..
+- Use type hints for all parameters and return values.
+- Class members that are internal to the class should be prefixed with "_".
+- Do not include type hints in docstrings.
+- Don't try to "strip()" strings arbitrarily unless requested or clearly required for the task.
+- Use dedent to format multi-line string literals and correctly handle preceding whitespace while still maintaining readability.
+- Prefer not using recursion when possible.
+
+Follow the following guidelines when adding a new "Command" implementation - 
+- Check the "command.py" file to understand how the Command interface is structured.
+- Register the new Command with the Shell class.
+- When executed a command is structured as follows. Make sure to follow it when adding examples.
+
+```
+▶command_name v1 -f v2 --foo v3｜Do something■
+✅File updated successfully■
+
+▶command_name v1 -f v2 --foo v3｜Erroneous data■
+❌Error■
+```
+
+Specifically note the following for the command itself - 
+- The command starts with "▶"
+- "▶" is followed by the command name
+- The command name is followed by a space
+- The command name is followed by the parameters
+- The command data is separated by a pipe (|) from the command name and parameters. The command data is optional.
+
+Note the following for the command result - 
+- The command result starts with "✅" if the command was executed successfully
+- The command result starts with "❌" if the command was executed with an error
+- When adding examples make sure to include a description of what kind of changes it makes. If modifying external state, then include details about the initial state and the final state after running the command.
+- Make sure to add a "manual" with detailed instructions on the command parameters and examples.
+
+When writing tests - 
+- DO NOT mock anything unless otherwise requested. 
+
+When debugging tests - 
+- Add additional logging to the tests or code to aid with debugging. This is in fact a key indicator of places where logs are required.
+
+When determining code to remove - 
+- Make use of the knowledge that "internal" functions, parameters and classes are prefixed with "_". If they are not used elsewhere in the code base then they can be safely removed.
