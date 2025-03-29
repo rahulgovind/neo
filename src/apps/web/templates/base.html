@@ -1,0 +1,73 @@
+<!-- 
+  Neo Web Chat - Base HTML Template
+  
+  This template provides the React root for the chat application
+  using a flat, minimal design approach with Tailwind CSS for styling.
+-->
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <!-- Basic meta tags for character encoding and responsive viewport -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Neo Web Chat{% endblock %}</title>
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tailwind configuration -->
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              'neo-bg': 'rgb(33, 33, 33)',
+              'neo-message': 'rgba(50, 50, 50, 0.85)',
+              'neo-border': 'hsla(0, 0%, 100%, .05)',
+              'neo-text': '#e5e7eb',
+              'neo-input': 'rgba(64, 64, 64, 0.9)',
+              'neo-error': 'rgba(239, 68, 68, 0.8)',
+              'neo-success': 'rgba(16, 185, 129, 0.8)'
+            },
+            borderRadius: {
+              'message': '1.5rem',
+              'input': '28px'
+            }
+          }
+        }
+      }
+    </script>
+    <!-- External libraries: Font Awesome for icons and Highlight.js for code highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github.min.css">
+    
+    <!-- Custom styles for chat interface -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/message-fixes.css') }}?v=1">
+    
+    <!-- React Development CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-neo-bg text-neo-text font-sans h-full overflow-y-auto">
+    <!-- React application root -->
+    <div id="react-root" class="min-h-screen"></div>
+    
+    <!-- Non-React fallback content container -->
+    <div id="legacy-content" class="hidden">
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- External libraries: Marked for Markdown parsing and Highlight.js for code syntax highlighting -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
+    
+    <!-- React bundle containing all components -->
+    <script src="{{ url_for('static', filename='dist/bundle.js') }}"></script>
+    
+    <!-- Legacy app.js for non-React fallback -->
+    <script src="{{ url_for('static', filename='js/app.js') }}" data-enabled="false"></script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

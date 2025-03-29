@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Neo Logs{% endblock %}
+
+{% block content %}
+<div class="logs-container">
+    <h2>Log Files</h2>
+    
+    <div class="logs-list">
+        {% if log_files %}
+            {% for log_file in log_files %}
+            <div class="log-card">
+                <div class="log-info">
+                    <h3>{{ log_file.name }}</h3>
+                    <p class="log-size">Size: {{ (log_file.size / 1024)|round(1) }} KB</p>
+                    <p class="log-date">Modified: {{ log_file.modified }}</p>
+                </div>
+                <div class="log-actions">
+                    <a href="{{ url_for('view_log', logger_name=log_file.name) }}" class="btn btn-primary">
+                        <i class="fas fa-eye"></i> View
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="no-logs">No log files found for this session.</p>
+        {% endif %}
+    </div>
+    
+    <div class="log-actions-footer">
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Chat
+        </a>
+    </div>
+</div>
+{% endblock %}

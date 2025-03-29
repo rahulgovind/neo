@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Chat Sessions{% endblock %}
+
+{% block content %}
+<div class="sessions-container">
+    <h2>Chat Sessions</h2>
+    
+    <div class="session-list">
+        {% if sessions %}
+            {% for session in sessions %}
+            <div class="session-card">
+                <div class="session-info">
+                    <h3>Session {{ loop.index }}</h3>
+                    <p class="session-workspace">{{ session.workspace }}</p>
+                    <p class="session-date">Created: {{ session.created_at }}</p>
+                    <p class="session-date">Last active: {{ session.last_active }}</p>
+                </div>
+                <div class="session-actions">
+                    <a href="{{ url_for('switch_session', session_id=session.id) }}" class="btn btn-primary">
+                        <i class="fas fa-sign-in-alt"></i> Open
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="no-sessions">No sessions found. <a href="{{ url_for('new_session') }}">Create a new session</a>.</p>
+        {% endif %}
+    </div>
+    
+    <div class="session-actions-footer">
+        <a href="{{ url_for('new_session') }}" class="btn btn-success">
+            <i class="fas fa-plus"></i> New Session
+        </a>
+    </div>
+</div>
+{% endblock %}

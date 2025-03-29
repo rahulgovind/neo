@@ -56,3 +56,6 @@ docs/api/
 # Temporary files
 tmp/
 temp/
+
+# Node modules
+src/apps/web/node_modules/
