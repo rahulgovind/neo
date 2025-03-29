@@ -59,3 +59,4 @@ temp/
 
 # Node modules
 src/apps/web/node_modules/
+src/apps/web/package-lock.json
