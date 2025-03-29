@@ -38,15 +38,24 @@ def read(path: str, include_line_numbers: bool = False) -> str:
             return f"Path is not a file: {path}"
         
         with open(path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+            # Read the file content directly to preserve the exact format including final newline
+            content = f.read()
+            
             if include_line_numbers:
-                # Add line numbers for easier reference
+                # Split into lines and add line numbers
+                lines = content.splitlines(True)  # keepends=True to preserve newlines
                 numbered_lines = [f"{i+1} {line}" for i, line in enumerate(lines)]
+                result = "".join(numbered_lines)
+                
+                # Ensure we preserve the final newline if it exists in the original file
+                if content and content[-1] == '\n' and (not result or result[-1] != '\n'):
+                    result += '\n'
+                    
                 logger.info(f"Successfully read file: {path} ({len(lines)} lines)")
-                return "".join(numbered_lines)
+                return result
             else:
-                logger.info(f"Successfully read file: {path} ({len(lines)} lines)")
-                return "".join(lines)
+                logger.info(f"Successfully read file: {path} ({len(content.splitlines())} lines)")
+                return content
                 
     except UnicodeDecodeError:
         logger.error(f"File is not text or has unknown encoding: {path}")

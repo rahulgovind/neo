@@ -60,24 +60,8 @@ def new_context(session_id: str, workspace: Optional[str] = None) -> Iterator[Co
             if hasattr(_thread_local, 'context'):
                 delattr(_thread_local, 'context')
 
-def with_context(session_id: str, workspace: Optional[str] = None) -> Context:
-    """
-    Set the current thread's context (non-context manager version).
-    
-    Args:
-        session_id: Unique identifier for the current session
-        workspace: Optional path to the code workspace
-        
-    Returns:
-        The created Context object
-        
-    Note:
-        This function is provided for backward compatibility.
-        For new code, prefer using the `new_context` context manager.
-    """
-    context = Context(session_id=session_id, workspace=workspace)
-    _thread_local.context = context
-    return context
+# with_context function has been removed as it should not be used.
+# Use the new_context context manager pattern instead:
 
 def get() -> Context:
     """
@@ -91,5 +75,5 @@ def get() -> Context:
     """
     context = getattr(_thread_local, 'context', None)
     if context is None:
-        raise ContextNotSetError("Context has not been set. Use 'with new_context(...):' or 'with_context(...)' first.")
+        raise ContextNotSetError("Context has not been set. Use 'with new_context(...):' first.")
     return context

@@ -40,6 +40,7 @@ setup(
     entry_points={
         "console_scripts": [
             "neo=src.apps.cli:main",
+            "neo-web=src.apps.web.launcher:main",
         ],
     },
     classifiers=[

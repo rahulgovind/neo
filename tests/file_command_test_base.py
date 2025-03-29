@@ -90,10 +90,9 @@ def test_function():
         self.test_session_id = f"test_{self.__class__.__name__.lower()}_session"
         
         # Create a context with our temp directory as workspace
-        self.ctx = context.with_context(
-            session_id=self.test_session_id,
-            workspace=self.temp_dir
-        )
+        # Use context manager and save the context
+        with context.new_context(session_id=self.test_session_id, workspace=self.temp_dir) as ctx:
+            self.ctx = ctx
         
         # Create a shell instance
         self.shell = Shell()

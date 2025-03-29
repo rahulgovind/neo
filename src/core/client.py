@@ -26,6 +26,28 @@ class Client:
     Handles client instantiation, request/response logging, and command parsing.
     """
     
+    # Instructions for command execution format
+    COMMAND_INSTRUCTIONS = """
+    When executing commands, follow this exact format:
+    
+    - The command starts with "▶"
+    - "▶" is followed by the command name
+    - The command name is followed by a space
+    - The command name is followed by the parameters
+    - The command data is separated by a pipe (|) from the command name and parameters. The command data is optional.
+    
+    Examples:
+    ```
+    ▶command_name v1 -f v2 --foo v3｜Do something■
+    ✅File updated successfully■
+    
+    ▶command_name v1 -f v2 --foo v3｜Erroneous data■
+    ❌Error■
+    ```
+    
+    Note that command results start with "✅" if executed successfully or "❌" if executed with an error.
+    """
+    
     def __init__(self):
         """
         Initialize the LLM client using environment variables.
@@ -52,29 +74,20 @@ class Client:
             logger.error(f"Failed to initialize LLM client: {e}")
             raise
         
-        # Initialize the requests directory for storing LLM requests
-        self._requests_dir = Path(os.path.expanduser("~")) / ".neo" / "requests"
-        self._setup_logging()
+        # Initialize structured logger as None - will be set up when needed
+        self.structured_logger = None
     
     def _setup_logging(self):
         """
-        Set up logging directories based on current context.
+        Set up structured logger.
+        Only called when needed.
         """
-        # Get current context
-        ctx = context.get()
-        session_id = ctx.session_id
-        
-        # Create a session-specific directory
-        self._requests_dir = self._requests_dir / session_id
-        
-        self._requests_dir.mkdir(parents=True, exist_ok=True)
-        logger.debug(f"Request logs directory initialized at {self._requests_dir}")
-        
-        # Initialize the structured logger
-        self.structured_logger = StructuredLogger(str(self._requests_dir))
+        # Initialize the structured logger with the logger name only
+        # The session_id will be fetched when record() is called
+        self.structured_logger = StructuredLogger("requests")
         
     def process(self, messages: List[Message], model: str = "anthropic/claude-3.7-sonnet", 
-               stop: List[str] = None) -> Message:
+               stop: List[str] = None, include_command_instructions: bool = True) -> Message:
         """
         Process a conversation with the LLM and return the response.
         
@@ -93,8 +106,29 @@ class Client:
             # Prepare messages list
             processed_messages = []
             
-            # Process all messages
-            for message in messages:
+            # If this is a system message and we should include command instructions,
+            # append the command instructions to the system message
+            if include_command_instructions and messages and messages[0].role == "system":
+                system_message = messages[0]
+                original_content = system_message.text()
+                
+                # Add command instructions to the system message
+                if self.COMMAND_INSTRUCTIONS not in original_content:
+                    system_content = original_content + "\n\n" + self.COMMAND_INSTRUCTIONS
+                    processed_messages.append({
+                        "role": "system",
+                        "content": system_content
+                    })
+                    # Skip the system message in the loop below
+                    messages_to_process = messages[1:]
+                else:
+                    # If instructions are already included, process normally
+                    messages_to_process = messages
+            else:
+                messages_to_process = messages
+            
+            # Process all remaining messages
+            for message in messages_to_process:
                 processed_messages.append({
                     "role": message.role,
                     "content": message.text()
@@ -133,17 +167,8 @@ class Client:
         # Generate a unique ID for this request-response pair
         request_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         
-        logger.debug(f"Sending request to LLM with {len(request_data.get('messages', []))} messages")
-        
-        # Log a summary of the conversation
+        # Get model name for logging
         model_name = request_data.get('model', 'unknown')
-        logger.info(f"Sending request {request_id} with {len(request_data.get('messages', []))} messages to {model_name}")
-        
-        # Send the request to the LLM
-        response = self.client.chat.completions.create(**request_data)
-        
-        # Convert the response to a dictionary for logging
-        response_dict = self._response_to_dict(response)
         
         # Get current context for session_id
         try:
@@ -153,22 +178,83 @@ class Client:
             # If context is not set, use None for session_id
             session_id = None
         
-        # Prepare log data
-        log_data = {
+        # Log request start
+        request_log_data = {
+            "message": f"Sending request to model {model_name}",
+            "operation_type": "request_start",
             "request_id": request_id,
             "session_id": session_id,
-            "timestamp": datetime.datetime.now().isoformat(),
+            "model": model_name,
             "request": request_data,
-            "response": response_dict,
             "meta": {
                 "message_count": len(request_data.get('messages', []))
             }
         }
         
-        # Log the request and response using the structured logger
-        self.structured_logger.record("request", log_data)
+        # Ensure structured logger is initialized
+        if self.structured_logger is None:
+            self._setup_logging()
         
-        return response
+        # Log the request using the structured logger
+        self.structured_logger.record(request_log_data)
+        
+        logger.debug(f"Sending request to LLM with {len(request_data.get('messages', []))} messages")
+        logger.info(f"Sending request {request_id} with {len(request_data.get('messages', []))} messages to {model_name}")
+        
+        try:
+            # Send the request to the LLM
+            response = self.client.chat.completions.create(**request_data)
+            
+            # Convert the response to a dictionary for logging
+            response_dict = self._response_to_dict(response)
+            
+            # Log successful response
+            response_log_data = {
+                "message": f"Received response from model {model_name}",
+                "operation_type": "response",
+                "status": "success",
+                "request_id": request_id,
+                "session_id": session_id,
+                "model": model_name,
+                "response": response_dict,
+                "meta": {
+                    "message_count": len(request_data.get('messages', []))
+                }
+            }
+            
+            # Ensure structured logger is initialized
+            if self.structured_logger is None:
+                self._setup_logging()
+                
+            # Log the response using the structured logger
+            self.structured_logger.record(response_log_data)
+            
+            return response
+            
+        except Exception as e:
+            # Log failed response
+            error_log_data = {
+                "message": f"Error response from model {model_name}: {str(e)}",
+                "operation_type": "response",
+                "status": "failure",
+                "request_id": request_id,
+                "session_id": session_id,
+                "model": model_name,
+                "error": str(e),
+                "meta": {
+                    "message_count": len(request_data.get('messages', []))
+                }
+            }
+            
+            # Ensure structured logger is initialized
+            if self.structured_logger is None:
+                self._setup_logging()
+                
+            # Log the error using the structured logger
+            self.structured_logger.record(error_log_data)
+            
+            # Re-raise the exception
+            raise
     
     def _response_to_dict(self, response) -> Dict[str, Any]:
         """

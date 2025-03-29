@@ -26,7 +26,7 @@ from prompt_toolkit.completion import Completer, Completion, WordCompleter, merg
 from prompt_toolkit.document import Document
 from prompt_toolkit.completion import WordCompleter
 
-from src.core.agent import Agent
+from src.agent import Agent
 from src.core.context import Context
 
 # Configure logging

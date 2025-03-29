@@ -37,8 +37,16 @@ Note the following for the command result -
 When writing tests - 
 - DO NOT mock anything unless otherwise requested. 
 
-When debugging tests - 
-- Add additional logging to the tests or code to aid with debugging. This is in fact a key indicator of places where logs are required.
+If you need to kill a process - 
+- Use "ps aux | grep <process_name>" to find the process ID of the process you want to debug or interact with. 
+- Use "kill -9 <process_id>" to kill the process.
 
 When determining code to remove - 
 - Make use of the knowledge that "internal" functions, parameters and classes are prefixed with "_". If they are not used elsewhere in the code base then they can be safely removed.
+
+Commands specific to this workspace
+- Use "neo-web start --force-restart" to restart the web server.
+
+When making changes to the neo website - 
+- Check DESIGN.md to understand how the design guidelines for the website.
+- In general, follow a flat minimal design approach.

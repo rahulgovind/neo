@@ -96,10 +96,9 @@ def test_function():
         self.test_session_id = "test_search_file_session"
         
         # Create a context with our temp directory as workspace
-        self.ctx = context.with_context(
-            session_id=self.test_session_id,
-            workspace=self.temp_dir
-        )
+        # Use context manager and save the context
+        with context.new_context(session_id=self.test_session_id, workspace=self.temp_dir) as ctx:
+            self.ctx = ctx
         
         # Create a shell instance (SearchFileCommand is already registered as a built-in command)
         self.shell = Shell()

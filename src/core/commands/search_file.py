@@ -39,13 +39,13 @@ class SearchFileCommand(Command):
             description=textwrap.dedent("""
                 Search for content in files using grep.
                 
-                Example:
-                ▶search_file "import" --path src --file-pattern "*.py"
+                Examples:
+                ▶search_file "import" src --file-pattern "*.py"■
                 ✅src/core/command.py:8:import logging
                 src/core/command.py:9:import textwrap
-                src/core/command.py:10:from abc import ABC, abstractmethod
+                src/core/command.py:10:from abc import ABC, abstractmethod■
                 
-                ▶search_file "function" -i --context 2
+                ▶search_file "function" . -i --context 2■
                 ✅src/utils/files.py:24:  
                 src/utils/files.py:25:def read_function(file_path):
                 src/utils/files.py:26:    (Read file contents)
@@ -53,7 +53,12 @@ class SearchFileCommand(Command):
                 --
                 src/utils/files.py:41:  
                 src/utils/files.py:42:# Helper function to process files
-                src/utils/files.py:43:def _process_content(content):
+                src/utils/files.py:43:def _process_content(content)■
+                
+                ▶search_file "class" ./src/core -f "*.py"■
+                ✅src/core/command.py:15:class CommandParameter:
+                src/core/command.py:65:class CommandTemplate:
+                src/core/model.py:24:class Model:■
                 """),
             parameters=[
                 CommandParameter(

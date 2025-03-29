@@ -10,12 +10,13 @@ import os
 import sys
 import logging
 import argparse
-import uuid
+import random
+import datetime
 from typing import Dict, Any, Optional, List
 
 from src.core.model import Model
 from src.core.context import Context
-from src.core.agent import Agent
+from src.agent import Agent
 from src.core.shell import Shell
 from src.core import env
 from src.apps.chat import Chat, ChatFactory
@@ -211,25 +212,29 @@ class CLI:
             logger.debug("Initializing environment")
             env.initialize()
             
-            # Generate a session ID
-            session_id = str(uuid.uuid4())
+            # Generate a session ID in the format YYYYMMDD_HHMMSS_XXXX
+            now = datetime.datetime.now()
+            date_part = now.strftime("%Y%m%d")
+            time_part = now.strftime("%H%M%S")
+            random_part = f"{random.randint(1000, 9999)}"
+            session_id = f"{date_part}_{time_part}_{random_part}"
             
             # Initialize the context before other components
             logger.debug(f"Initializing context with session_id={session_id} and workspace={args.workspace}")
-            from src.core.context import with_context
-            with_context(session_id=session_id, workspace=args.workspace)
-            
-            # Initialize the shell
-            logger.debug("Initializing Shell")
-            shell = Shell()
-            
-            # Initialize the model
-            logger.debug("Initializing Model")
-            model = Model()
-            
-            # Set the model and shell in the environment
-            env.set_model(model)
-            env.set_shell(shell)
+            from src.core.context import new_context
+            # Use the context manager pattern
+            with new_context(session_id=session_id, workspace=args.workspace) as ctx:
+                # Initialize the shell
+                logger.debug("Initializing Shell")
+                shell = Shell()
+                
+                # Initialize the model
+                logger.debug("Initializing Model")
+                model = Model()
+                
+                # Set the model and shell in the environment
+                env.set_model(model)
+                env.set_shell(shell)
             
             # Get system instructions - using default instructions
             instructions = cls.DEFAULT_INSTRUCTIONS
