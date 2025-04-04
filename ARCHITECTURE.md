@@ -34,7 +34,7 @@ Neo follows a layered architecture with clear separation of concerns:
          │
          ▼
 ┌─────────────────┐                 ┌─────────────────┐
-│      Model      │◄────────────────▶   Functions     │
+│      Model      │◄────────────────│   Functions     │
 └─────────────────┘                 └─────────────────┘
   LLM interaction                      File operations
 ```
@@ -101,14 +101,65 @@ The Messages component defines data structures for communication:
 - Maintains structured representation of conversation history
 - Supports extraction of command calls from messages
 
-#### Agent (src/agent.py)
+#### Agent (src/agent/agent.py)
 
-The Agent builds on top of the Model and Functions:
+The Agent component orchestrates conversations with LLMs and handles command invocations:
 
-- Maintains conversation state across messages
-- Manages the context window with relevant information
-- Orchestrates function execution based on LLM requests
-- Handles the conversation flow and multi-turn interactions
+- Maintains stateful conversations using an AgentState class to track message history
+- Processes user messages and generates appropriate responses through the LLM
+- Handles command call extraction, execution, and result integration
+- Manages the conversation context window through pruning mechanisms
+- Supports hierarchical memory management for enhanced context retention
+
+The Agent is structured around these key elements:
+
+1. **AgentState**: A dataclass that maintains the message history for the conversation
+2. **DEFAULT_INSTRUCTIONS_TEMPLATE**: System instructions that guide model behavior, including workspace information and guidelines for reasoning and command usage
+3. **Process Method**: Main entry point that handles user messages and returns responses
+4. **Command Processing**: Logic to extract, execute, and integrate command results
+5. **State Management**: Includes pruning mechanisms that trigger when the conversation exceeds 100 messages, keeping the last 6 messages
+
+The Agent implementation includes robust error handling and logging:
+
+```python
+def process(self, user_message: str) -> str:
+    """
+    Process a user message and generate a response.
+    
+    Returns:
+        Text response from the assistant (excluding command calls)
+    """
+    logger.info("Processing user message")
+    
+    try:
+        self.state.messages.append(Message(role="user", content=[TextBlock(user_message)]))
+        
+        # Process messages, handling any command calls
+        self._process()
+        
+        # Get the final response (should be the last message from the assistant)
+        final_response = self.state.messages[-1]
+        if final_response.role != "assistant":
+            logger.warning("Last message in state is not from assistant")
+            return "I had an issue processing your request. Please try again."
+            
+        logger.info("User message processed successfully")
+        return final_response.text()
+        
+    except Exception as e:
+        logger.error(f"Error processing user message: {e}")
+        # Provide a user-friendly error message
+        return "I encountered an error processing your request. Please try again or rephrase your message."
+```
+
+The `_process` method implements a loop that continues until the last message is from the assistant and doesn't contain command calls. This ensures all commands are properly executed before returning to the user:
+
+1. It sends messages to the model without auto-executing commands
+2. Adds the model's response to the state
+3. Checks for command calls in the response
+4. If commands are present, extracts them and processes them through the shell
+5. Adds command results as a user message back to the conversation
+6. Continues the loop until all commands are processed
 
 #### Chat (src/chat.py)
 
