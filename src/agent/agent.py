@@ -3,7 +3,9 @@ With added support for hierarchical memory management for enhanced context reten
 """
 
 from dataclasses import dataclass
+import json
 import os.path
+import os
 import logging
 from typing import List
 
@@ -16,6 +18,19 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AgentState:
     messages: List[Message]
+    
+    def to_dict(self):
+        """Convert AgentState to a dictionary for serialization."""
+        return {
+            "messages": [message.to_dict() for message in self.messages]
+        }
+    
+    @classmethod
+    def from_dict(cls, data):
+        """Create AgentState from a dictionary."""
+        return cls(
+            messages=[Message.from_dict(msg) for msg in data["messages"]]
+        )
 
 class Agent:
     """
@@ -62,8 +77,37 @@ class Agent:
         self._instructions = instructions
         self.ctx = ctx
         
-        # Initialize state with empty message list
-        self.state = AgentState(messages=[])
+        # Ensure session directory exists
+        try:
+            session_dir = self.ctx.internal_session_dir
+            # Create the ~/.neo directory structure if it doesn't exist
+            if not os.path.exists(session_dir):
+                os.makedirs(session_dir, exist_ok=True)
+                logger.info(f"Created session directory: {session_dir}")
+        except Exception as e:
+            logger.error(f"Error creating session directory: {e}")
+            # If directory creation fails, use a fallback temporary location
+            session_dir = os.path.join(os.path.expanduser('~'), '.neo', 'temp')
+            if not os.path.exists(session_dir):
+                os.makedirs(session_dir, exist_ok=True)
+        
+        # Path to state file
+        self.state_file = os.path.join(session_dir, "agent_state.json")
+        
+        # Try to load state from file if it exists
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, 'r') as f:
+                    state_data = json.load(f)
+                self.state = AgentState.from_dict(state_data)
+                logger.info(f"Loaded agent state from {self.state_file}")
+            except Exception as e:
+                logger.error(f"Error loading agent state: {e}")
+                # Initialize with empty state if loading fails
+                self.state = AgentState(messages=[])
+        else:
+            # Initialize with empty state if no state file exists
+            self.state = AgentState(messages=[])
         
         # Get available commands
         self._command_names = self.ctx.shell.list_commands()
@@ -83,6 +127,9 @@ class Agent:
             
             # Process messages, handling any command calls
             self._process()
+            
+            # Save the updated state
+            self._save_state()
             
             # Get the final response (should be the last message from the assistant)
             final_response = self.state.messages[-1]
@@ -113,6 +160,7 @@ class Agent:
 
         # Only keep the last 6 messages on pruning
         self.state.messages = self.state.messages[-6:]
+        self._save_state()
     
     def _process(self) -> None:
         """
@@ -154,3 +202,12 @@ class Agent:
                 content=command_results
             )
             self.state.messages.append(result_message)
+
+    def _save_state(self):
+        """Save the current agent state to a file."""
+        try:
+            with open(self.state_file, 'w') as f:
+                json.dump(self.state.to_dict(), f)
+            logger.info(f"Saved agent state to {self.state_file}")
+        except Exception as e:
+            logger.error(f"Error saving agent state: {e}")

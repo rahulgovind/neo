@@ -10,7 +10,8 @@ import os
 import logging
 import signal
 import time
-from typing import Optional, Any
+import sys
+from typing import Optional, Any, Tuple
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -44,6 +45,7 @@ class Chat:
         "/exit": "Exit the chat session",
         "/help": "Show this help message",
         "/debug": "Toggle debug mode",
+        "/new-session": "Create a new session",
     }
     
     def __init__(
@@ -60,11 +62,27 @@ class Chat:
         """
         self.workspace = workspace
         
+        # Setup active session tracking
+        self.active_session_file = os.path.join(os.path.expanduser("~"), ".neo", "active_session_id")
+        
+        # Determine if we should use an existing session or create a new one
+        session_id, is_new_session = self._get_or_create_session_id()
+        
         # Create and initialize the context
-        self._ctx = Context.builder().workspace(workspace).initialize()
+        if session_id:
+            self._ctx = Context.builder().session_id(session_id).workspace(workspace).initialize()
+        else:
+            self._ctx = Context.builder().workspace(workspace).initialize()
+            
+        # Save the current session as active
+        self._save_active_session(self._ctx.session_id)
         
         # Get the agent from the context
         self._console = Console()
+        
+        # Show session status on initialization
+        session_status = "Using existing" if not is_new_session else "Created new"
+        logger.info(f"{session_status} session: {self._ctx.session_id}")
         
         # Determine history file location
         if history_file is None:
@@ -104,6 +122,68 @@ class Chat:
         self.last_interrupt_time = 0
         
         logger.info(f"Chat initialized with workspace: {workspace}")
+    
+    def _get_or_create_session_id(self) -> Tuple[Optional[str], bool]:
+        """
+        Get the active session ID if it exists, or return None to create a new one.
+        
+        Returns:
+            Tuple containing (session_id, is_new_session)
+            - session_id will be None if no valid active session exists
+            - is_new_session will be True if a new session needs to be created
+        """
+        try:
+            # Check if there's an active session file
+            if os.path.exists(self.active_session_file):
+                with open(self.active_session_file, 'r') as f:
+                    session_id = f.read().strip()
+                
+                if session_id:
+                    # Check if the session directory exists
+                    session_dir = os.path.expanduser(f"~/.neo/{session_id}")
+                    if os.path.exists(session_dir):
+                        logger.info(f"Found existing session: {session_id}")
+                        return session_id, False
+        
+        except Exception as e:
+            logger.warning(f"Error reading active session file: {e}")
+        
+        # If we get here, we need a new session
+        return None, True
+    
+    def _save_active_session(self, session_id: str) -> None:
+        """Save the current session ID as the active session."""
+        try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(self.active_session_file), exist_ok=True)
+            
+            # Write the session ID to the active session file
+            with open(self.active_session_file, 'w') as f:
+                f.write(session_id)
+                
+            logger.info(f"Saved {session_id} as active session")
+        except Exception as e:
+            logger.error(f"Error saving active session: {e}")
+            
+    def _create_new_session(self) -> str:
+        """
+        Create a new session and update the context.
+        
+        Returns:
+            The new session ID or None if failed
+        """
+        try:
+            # Create a new context with a new session ID
+            self._ctx = Context.builder().workspace(self.workspace).initialize()
+            
+            # Save the new session as active
+            self._save_active_session(self._ctx.session_id)
+            
+            logger.info(f"Created new session: {self._ctx.session_id}")
+            return self._ctx.session_id
+        except Exception as e:
+            logger.error(f"Error creating new session: {e}")
+            return None
     
     def launch(self) -> None:
         """
@@ -294,6 +374,14 @@ class Chat:
             status = "enabled" if self.debug_mode else "disabled"
             self._console.print(f"[yellow]Debug mode {status}[/yellow]")
             logger.info(f"Debug mode {status}")
+        elif cmd == "/new-session":
+            old_session_id = self._ctx.session_id
+            new_session_id = self._create_new_session()
+            if new_session_id:
+                self._console.print(f"[green]🔄 Created new session: [bold]{self._ctx.session_id}[/bold][/green]")
+                self._console.print(f"[dim]Previous session was: {old_session_id}[/dim]")
+            else:
+                self._console.print(f"[red]Failed to create new session[/red]")
         else:
             self._console.print(f"[red]Unknown command: {cmd}[/red]")
             self._console.print("Type [blue]/help[/blue] for available commands.")

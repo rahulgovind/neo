@@ -7,7 +7,7 @@ import re
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Type
 
 from src.core.constants import (
     COMMAND_END,
@@ -87,21 +87,21 @@ def _escape_special_chars(content: str) -> str:
         return ""
     
     # First, handle already-escaped sequences by doubling the backslashes
-    # This matches \u25b6, \u25a0, etc. and replaces with \\u25b6, \\u25a0, etc.
+    # This matches \\u25b6, \\u25a0, etc. and replaces with \\\u25b6, \\\u25a0, etc.
     result = re.sub(
         r'\\u(25b6|25a0|ff5c|274c|2705)', 
         r'\\\\u\1',  # \1 is the backreference to the captured group
         content
     )
     
-    # Then replace actual special characters with their escaped forms
+    # Then replace actual special characters with their escape sequences
     # Create a dictionary mapping special characters to their escape sequences
     char_to_escape = {
-        COMMAND_START: '\\u25b6',    # ▶ -> \u25b6
-        COMMAND_END: '\\u25a0',      # ■ -> \u25a0
-        STDIN_SEPARATOR: '\\uff5c',  # ｜ -> \uff5c
-        ERROR_PREFIX: '\\u274c',     # ❌ -> \u274c
-        SUCCESS_PREFIX: '\\u2705',   # ✅ -> \u2705
+        COMMAND_START: '\\\u25b6',    # \u25b6 -> \\u25b6
+        COMMAND_END: '\\\u25a0',      # \u25a0 -> \\u25a0
+        STDIN_SEPARATOR: '\\\uff5c',  # \uff5c -> \\uff5c
+        ERROR_PREFIX: '\\\u274c',     # \u274c -> \\u274c
+        SUCCESS_PREFIX: '\\\u2705',   # \u2705 -> \\u2705
     }
     
     # Build the pattern of all special characters to match
@@ -132,16 +132,16 @@ def _unescape_special_chars(content: str) -> str:
         return ""
     
     # We need to detect if we're working with:
-    # 1. A literal double-escaped sequence like "\\u25b6" (which should become "\u25b6")
-    # 2. A single-escaped sequence like "\u25b6" (which should become the actual character)
+    # 1. A literal double-escaped sequence like "\\\u25b6" (which should become "\\u25b6")
+    # 2. A single-escaped sequence like "\\u25b6" (which should become the actual character)
     
     # Create a dictionary for the escape sequence to special character mapping
     escape_to_char = {
-        '\\u25b6': COMMAND_START,     # \u25b6 -> ▶
-        '\\u25a0': COMMAND_END,       # \u25a0 -> ■
-        '\\uff5c': STDIN_SEPARATOR,   # \uff5c -> ｜
-        '\\u274c': ERROR_PREFIX,      # \u274c -> ❌
-        '\\u2705': SUCCESS_PREFIX,    # \u2705 -> ✅
+        '\\\u25b6': COMMAND_START,     # \\u25b6 -> \u25b6
+        '\\\u25a0': COMMAND_END,       # \\u25a0 -> \u25a0
+        '\\\uff5c': STDIN_SEPARATOR,   # \\uff5c -> \uff5c
+        '\\\u274c': ERROR_PREFIX,      # \\u274c -> \u274c
+        '\\\u2705': SUCCESS_PREFIX,    # \\u2705 -> \u2705
     }
     
     # Define a replacement function for our regex
@@ -232,6 +232,50 @@ class Message:
         """Get all text content from the message, joined with newlines."""
         text_parts = [block.text() for block in self.content]
         return "\n".join(text_parts)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert Message to a dictionary for serialization."""
+        return {
+            "role": self.role,
+            "content": [
+                {
+                    "type": block.__class__.__name__,
+                    "value": block.text() if isinstance(block, TextBlock) else str(block)
+                }
+                for block in self.content
+            ],
+            "metadata": self.metadata
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Message':
+        """Create Message from a dictionary."""
+        content_blocks = []
+        for item in data.get("content", []):
+            block_type = item.get("type", "TextBlock")
+            value = item.get("value", "")
+            
+            if block_type == "TextBlock":
+                content_blocks.append(TextBlock(value))
+            elif block_type == "CommandCall":
+                # Determine if the command has an end marker
+                end_marker_set = value.endswith(COMMAND_END)
+                # Extract content without markers
+                content = value.replace(COMMAND_START, "").replace(COMMAND_END, "")
+                content_blocks.append(CommandCall(content, end_marker_set))
+            elif block_type == "CommandResult":
+                # Simplified approach - we store the full text and recreate a TextBlock
+                # This is sufficient for display purposes
+                content_blocks.append(TextBlock(value))
+            else:
+                # Default to TextBlock for unknown types
+                content_blocks.append(TextBlock(value))
+        
+        return cls(
+            role=data.get("role", "user"),
+            content=content_blocks,
+            metadata=data.get("metadata", {})
+        )
 
     def copy(self, metadata: Optional[Dict[str, Any]] = None) -> 'Message':
         return Message(

@@ -83,6 +83,11 @@ class Context:
         return self._shell
     
     @property
+    def internal_session_dir(self) -> str:
+        """Get the internal session directory path (~/.neo/<session_id>)."""
+        return os.path.expanduser(f"~/.neo/{self.session_id}")
+    
+    @property
     def agent(self) -> 'Agent':
         """Get the agent from the context, raising an error if it's not available."""
         if self._agent is None:
