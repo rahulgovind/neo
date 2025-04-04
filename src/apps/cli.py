@@ -7,8 +7,10 @@ It ties together all the other modules to create a cohesive application.
 """
 
 import os
+import errno
 import sys
 import logging
+import logging.handlers
 import argparse
 from typing import Dict, Any, Optional, List
 
@@ -140,26 +142,72 @@ class CLI:
         Args:
             verbosity: Level of verbosity (0=INFO, 1=DEBUG, 2+=DEBUG with more details)
         """
-        # Set root logger level based on verbosity
-        if verbosity == 0:
-            log_level = logging.INFO
-        else:
-            log_level = logging.DEBUG
-        
-        # Configure root logger
-        logging.basicConfig(
-            level=log_level,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
-        )
-        
-        # For very verbose mode, enable debug logging for all modules
-        if verbosity >= 2:
-            logging.getLogger().setLevel(logging.DEBUG)
-        else:
-            # Set conservative default levels for noisy libraries
-            logging.getLogger("openai").setLevel(logging.WARNING)
-            logging.getLogger("httpx").setLevel(logging.WARNING)
+        try:
+            # Set root logger level based on verbosity
+            if verbosity == 0:
+                log_level = logging.INFO
+            else:
+                log_level = logging.DEBUG
+            
+            # Create ~/.neo directory if it doesn't exist
+            log_dir = os.path.expanduser("~/.neo")
+            os.makedirs(log_dir, exist_ok=True)
+            
+            # Path to error log file
+            error_log_file = os.path.join(log_dir, "errors.log")
+            
+            # Create a formatter for all handlers
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S"
+            )
+            
+            # Configure root logger and remove any existing handlers
+            root_logger = logging.getLogger()
+            # Remove all existing handlers to prevent duplication
+            for handler in root_logger.handlers[:]:
+                root_logger.removeHandler(handler)
+                
+            root_logger.setLevel(log_level)
+            
+            # Create console handler for all levels
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setFormatter(formatter)
+            console_handler.setLevel(log_level)
+            
+            # Create file handler for errors only
+            file_handler = logging.handlers.RotatingFileHandler(
+                error_log_file,
+                maxBytes=10485760,  # 10MB
+                backupCount=3       # Keep 3 backup files
+            )
+            file_handler.setLevel(logging.ERROR)
+            file_handler.setFormatter(formatter)
+            
+            # Add handlers to root logger
+            root_logger.addHandler(console_handler)
+            root_logger.addHandler(file_handler)
+            
+            # For very verbose mode, enable debug logging for all modules
+            if verbosity >= 2:
+                root_logger.setLevel(logging.DEBUG)
+            else:
+                # Set conservative default levels for noisy libraries
+                logging.getLogger("openai").setLevel(logging.WARNING)
+                logging.getLogger("httpx").setLevel(logging.WARNING)
+            
+            # Log the configuration was successful
+            logger.debug(f"Logging configured with verbosity level {verbosity}")
+            logger.debug(f"Error logs will be saved to {error_log_file}")
+            
+        except Exception as e:
+            # Fallback to basic logging in case of error
+            print(f"Warning: Could not set up error logging: {e}")
+            logging.basicConfig(
+                level=log_level,
+                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S"
+            )
         
         logger.debug(f"Logging configured with verbosity level {verbosity}")
 

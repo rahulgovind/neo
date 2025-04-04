@@ -37,21 +37,21 @@ def _escape_special_chars(content: str) -> str:
         return ""
     
     # First, handle already-escaped sequences by doubling the backslashes
-    # This matches \u25b6, \u25a0, etc. and replaces with \\u25b6, \\u25a0, etc.
+    # This matches \\u25b6, \\u25a0, etc. and replaces with \\\u25b6, \\\u25a0, etc.
     result = re.sub(
         r'\\u(25b6|25a0|ff5c|274c|2705)', 
         r'\\\\u\1',  # \1 is the backreference to the captured group
         content
     )
     
-    # Then replace actual special characters with their escaped forms
+    # Then replace actual special characters with their escape sequences
     # Create a dictionary mapping special characters to their escape sequences
     char_to_escape = {
-        COMMAND_START: '\\u25b6',    # ▶ -> \u25b6
-        COMMAND_END: '\\u25a0',      # ■ -> \u25a0
-        STDIN_SEPARATOR: '\\uff5c',  # ｜ -> \uff5c
-        ERROR_PREFIX: '\\u274c',     # ❌ -> \u274c
-        SUCCESS_PREFIX: '\\u2705',   # ✅ -> \u2705
+        COMMAND_START: '\\\u25b6',    # \u25b6 -> \\u25b6
+        COMMAND_END: '\\\u25a0',      # \u25a0 -> \\u25a0
+        STDIN_SEPARATOR: '\\\uff5c',  # \uff5c -> \\uff5c
+        ERROR_PREFIX: '\\\u274c',     # \u274c -> \\u274c
+        SUCCESS_PREFIX: '\\\u2705',   # \u2705 -> \\u2705
     }
     
     # Build the pattern of all special characters to match
@@ -82,16 +82,16 @@ def _unescape_special_chars(content: str) -> str:
         return ""
     
     # We need to detect if we're working with:
-    # 1. A literal double-escaped sequence like "\\u25b6" (which should become "\u25b6")
-    # 2. A single-escaped sequence like "\u25b6" (which should become the actual character)
+    # 1. A literal double-escaped sequence like "\\\u25b6" (which should become "\\u25b6")
+    # 2. A single-escaped sequence like "\\u25b6" (which should become the actual character)
     
     # Create a dictionary for the escape sequence to special character mapping
     escape_to_char = {
-        '\\u25b6': COMMAND_START,     # \u25b6 -> ▶
-        '\\u25a0': COMMAND_END,       # \u25a0 -> ■
-        '\\uff5c': STDIN_SEPARATOR,   # \uff5c -> ｜
-        '\\u274c': ERROR_PREFIX,      # \u274c -> ❌
-        '\\u2705': SUCCESS_PREFIX,    # \u2705 -> ✅
+        '\\\u25b6': COMMAND_START,     # \\u25b6 -> \u25b6
+        '\\\u25a0': COMMAND_END,       # \\u25a0 -> \u25a0
+        '\\\uff5c': STDIN_SEPARATOR,   # \\uff5c -> \uff5c
+        '\\\u274c': ERROR_PREFIX,      # \\u274c -> \u274c
+        '\\\u2705': SUCCESS_PREFIX,    # \\u2705 -> \u2705
     }
     
     # Define a replacement function for our regex
@@ -279,128 +279,183 @@ def patch(path: str, diff_text: str) -> str:
     # Split into lines for processing
     original_lines = content.split("\n")
     
-    # Remove empty lines from the diff
-    diff_lines = [
-        line for line in diff_text.split("\n")
-        if line.strip() != ""
-    ]
-    
-    # Process the diff lines
-    operations = []
-    
-    # Parse the chunk-based format
-    chunk_pattern = re.compile(r'^@(\d+)\s*(.*)$')
-    current_line_num = 0
-    
-    i = 0
-    while i < len(diff_lines):
-        line = diff_lines[i]
+    try:
+        # Remove empty lines from the diff
+        diff_lines = [
+            line for line in diff_text.split("\n")
+            if line.strip() != ""
+        ]
         
-        # Check if this is a chunk header
-        chunk_match = chunk_pattern.match(line)
-        if chunk_match:
-            # Get the starting line number for this chunk (1-indexed in the diff)
-            current_line_num = int(chunk_match.group(1)) - 1  # Convert to 0-indexed
-            i += 1  # Move to the next line
-            
-            # Process lines in this chunk
-            while i < len(diff_lines) and not diff_lines[i].startswith('@'):
-                chunk_line = diff_lines[i]
-                
-                if chunk_line.startswith('- '):
-                    # Delete line
-                    if current_line_num >= len(original_lines):
-                        raise FatalError(f"Line {current_line_num + 1} does not exist in the original content")
-                    # Verify that the line to delete matches what's in the diff
-                    line_content = chunk_line[2:]
-                    if original_lines[current_line_num] != line_content:
-                        raise FatalError(
-                            f"Line mismatch at line {current_line_num + 1}:\n" +
-                            f"Expected: '{line_content}'\n" +
-                            f"Actual: '{original_lines[current_line_num]}'"
-                        )
-                    operations.append((PatchOpType.DELETE.value, current_line_num, original_lines[current_line_num]))
-                    current_line_num += 1
-                elif chunk_line.startswith('+ '):
-                    # Add line
-                    operations.append((PatchOpType.ADD.value, current_line_num, chunk_line[2:]))
-                elif chunk_line.startswith('  '):
-                    # Unchanged line
-                    if current_line_num >= len(original_lines):
-                        raise FatalError(f"Line {current_line_num + 1} does not exist in the original content")
-                    # Verify that the unchanged line matches what's in the diff
-                    line_content = chunk_line[2:]
-                    if original_lines[current_line_num] != line_content:
-                        raise FatalError(
-                            f"Line mismatch at line {current_line_num + 1}:\n" +
-                            f"Expected: '{line_content}'\n" +
-                            f"Actual: '{original_lines[current_line_num]}'"
-                        )
-                    operations.append((PatchOpType.UNCHANGED.value, current_line_num, original_lines[current_line_num]))
-                    current_line_num += 1
-                else:
-                    # Invalid line in chunk
-                    raise FatalError(f"Invalid line format in chunk: {chunk_line}")
-                
-                i += 1
-        else:
-            # If it's not a chunk header, raise an error
-            raise FatalError(f"Invalid diff format: Line must start with @ to indicate a chunk: {line}")
-    
-    # Sort operations by line number, with deletions before additions
-    # This is important to handle overlapping line changes correctly
-    def op_sort_key(operation):
-        op, line_num, _ = operation
-        # Sort by line number first
-        # Then by operation type: deletions before additions
-        return (line_num, 0 if op == PatchOpType.DELETE.value else 
-                       1 if op == PatchOpType.UNCHANGED.value else 2)
+        # Process the diff lines
+        operations = []
         
-    operations.sort(key=op_sort_key)
-    
-    # Process changes by iterating over operations
-    result = []
-    next_original_line_number = 0
-    
-    # Process each operation in order
-    for op, line_num, line_content in operations:
-        # For delete and unmodified operations, ensure the line exists
-        if op in [PatchOpType.DELETE.value, PatchOpType.UNCHANGED.value] and line_num >= len(original_lines):
-            raise FatalError(f"Line {line_num + 1} does not exist in the original content")
+        # Parse the chunk-based format
+        chunk_pattern = re.compile(r'^@(\d+)\s*(.*)$')
+        current_line_num = 0
+        
+        i = 0
+        while i < len(diff_lines):
+            line = diff_lines[i]
             
-        # If there are lines to copy before this operation, copy them
-        if line_num > next_original_line_number and next_original_line_number < len(original_lines):
-            # Copy all lines up to but not including the current line
-            for i in range(next_original_line_number, line_num):
+            # Check if this is a chunk header
+            chunk_match = chunk_pattern.match(line)
+            if chunk_match:
+                # Get the starting line number for this chunk (1-indexed in the diff)
+                current_line_num = int(chunk_match.group(1)) - 1  # Convert to 0-indexed
+                i += 1  # Move to the next line
+                
+                # Process lines in this chunk
+                while i < len(diff_lines) and not diff_lines[i].startswith('@'):
+                    chunk_line = diff_lines[i]
+                    
+                    if chunk_line.startswith('- '):
+                        # Delete line
+                        if current_line_num >= len(original_lines):
+                            raise FatalError(f"Line {current_line_num + 1} does not exist in the original content")
+                        # Verify that the line to delete matches what's in the diff
+                        line_content = chunk_line[2:]
+                        if original_lines[current_line_num] != line_content:
+                            raise FatalError(
+                                f"Line mismatch at line {current_line_num + 1}:\n" +
+                                f"Expected: '{line_content}'\n" +
+                                f"Actual: '{original_lines[current_line_num]}'"
+                            )
+                        operations.append((PatchOpType.DELETE.value, current_line_num, original_lines[current_line_num]))
+                        current_line_num += 1
+                    elif chunk_line.startswith('+ '):
+                        # Add line
+                        operations.append((PatchOpType.ADD.value, current_line_num, chunk_line[2:]))
+                    elif chunk_line.startswith('  '):
+                        # Unchanged line
+                        if current_line_num >= len(original_lines):
+                            raise FatalError(f"Line {current_line_num + 1} does not exist in the original content")
+                        # Verify that the unchanged line matches what's in the diff
+                        line_content = chunk_line[2:]
+                        if original_lines[current_line_num] != line_content:
+                            raise FatalError(
+                                f"Line mismatch at line {current_line_num + 1}:\n" +
+                                f"Expected: '{line_content}'\n" +
+                                f"Actual: '{original_lines[current_line_num]}'"
+                            )
+                        operations.append((PatchOpType.UNCHANGED.value, current_line_num, original_lines[current_line_num]))
+                        current_line_num += 1
+                    else:
+                        # Invalid line in chunk
+                        raise FatalError(f"Invalid line format in chunk: {chunk_line}")
+                    
+                    i += 1
+            else:
+                # If it's not a chunk header, raise an error
+                raise FatalError(f"Invalid diff format: Line must start with @ to indicate a chunk: {line}")
+        
+        # Sort operations by line number, with deletions before additions
+        # This is important to handle overlapping line changes correctly
+        def op_sort_key(operation):
+            op, line_num, _ = operation
+            # Sort by line number first
+            # Then by operation type: deletions before additions
+            return (line_num, 0 if op == PatchOpType.DELETE.value else 
+                           1 if op == PatchOpType.UNCHANGED.value else 2)
+            
+        operations.sort(key=op_sort_key)
+        
+        # Process changes by iterating over operations
+        result = []
+        next_original_line_number = 0
+        
+        # Process each operation in order
+        for op, line_num, line_content in operations:
+            # For delete and unmodified operations, ensure the line exists
+            if op in [PatchOpType.DELETE.value, PatchOpType.UNCHANGED.value] and line_num >= len(original_lines):
+                raise FatalError(f"Line {line_num + 1} does not exist in the original content")
+                
+            # If there are lines to copy before this operation, copy them
+            if line_num > next_original_line_number and next_original_line_number < len(original_lines):
+                # Copy all lines up to but not including the current line
+                for i in range(next_original_line_number, line_num):
+                    result.append(original_lines[i])
+                next_original_line_number = line_num
+            
+            # Process the current operation
+            if op == PatchOpType.DELETE.value:
+                # Skip deleted line and move to next line
+                next_original_line_number += 1
+            elif op == PatchOpType.ADD.value:
+                # Add the new line
+                result.append(line_content)
+                # Don't increment next_original_line_number for additions
+            elif op == PatchOpType.UNCHANGED.value:
+                # Add the unchanged line and move to next line
+                result.append(line_content)
+                next_original_line_number += 1
+        
+        # Add any remaining lines from the original content
+        if next_original_line_number < len(original_lines):
+            for i in range(next_original_line_number, len(original_lines)):
                 result.append(original_lines[i])
-            next_original_line_number = line_num
         
-        # Process the current operation
-        if op == PatchOpType.DELETE.value:
-            # Skip deleted line and move to next line
-            next_original_line_number += 1
-        elif op == PatchOpType.ADD.value:
-            # Add the new line
-            result.append(line_content)
-            # Don't increment next_original_line_number for additions
-        elif op == PatchOpType.UNCHANGED.value:
-            # Add the unchanged line and move to next line
-            result.append(line_content)
-            next_original_line_number += 1
-    
-    # Add any remaining lines from the original content
-    if next_original_line_number < len(original_lines):
-        for i in range(next_original_line_number, len(original_lines)):
-            result.append(original_lines[i])
-    
-    # Convert the result to a string
-    result_str = '\n'.join(result)
-    
-    # Add trailing newline if the original had one or if there are lines in the result
-    if result_str and not result_str.endswith('\n'):
-        result_str += '\n'
-    
-    return result_str
+        # Convert the result to a string
+        result_str = '\n'.join(result)
+        
+        # Add trailing newline if the original had one or if there are lines in the result
+        if result_str and not result_str.endswith('\n'):
+            result_str += '\n'
+        
+        return result_str
+        
+    except FatalError as e:
+        # Extract line number from error message if possible
+        line_num_match = re.search(r'[Ll]ine (\d+)', str(e))
+        error_line_num = None
+        if line_num_match:
+            try:
+                error_line_num = int(line_num_match.group(1))
+            except ValueError:
+                pass
+        
+        # Prepare error message with context
+        error_msg = str(e)
+        
+        # If we have a specific line number, include relevant context around it
+        if error_line_num and error_line_num <= len(original_lines):
+            # Show 10 lines before and after the error
+            start_line = max(0, error_line_num - 11)  # -11 because error_line_num is 1-indexed
+            end_line = min(len(original_lines), error_line_num + 10)
+            
+            # Create content chunk with line numbers
+            context_lines = []
+            for i in range(start_line, end_line):
+                line_marker = ">" if i == error_line_num - 1 else " "
+                context_lines.append(f"{line_marker}{i+1:4d}: {original_lines[i]}")
+            
+            error_context = "\n".join(context_lines)
+            error_msg = f"{error_msg}\n\nRelevant file content:\n{error_context}"
+        else:
+            # No specific line, include the entire file if it's not too large
+            if len(original_lines) <= 100:  # Only include full content for reasonably-sized files
+                file_content = "\n".join([f"{i+1:4d}: {line}" for i, line in enumerate(original_lines)])
+                error_msg = f"{error_msg}\n\nFile content:\n{file_content}"
+            else:
+                # File too large, just indicate size
+                error_msg = f"{error_msg}\n\nFile is large ({len(original_lines)} lines) - showing first 50 lines:\n"
+                file_preview = "\n".join([f"{i+1:4d}: {line}" for i, line in enumerate(original_lines[:50])])
+                error_msg = f"{error_msg}{file_preview}\n..."
+        
+        raise FatalError(error_msg)
+    except Exception as e:
+        # For other exceptions, include full file content if not too large
+        error_msg = f"Error applying patch to {path}: {str(e)}"
+        
+        if len(original_lines) <= 100:  # Only include full content for reasonably-sized files
+            file_content = "\n".join([f"{i+1:4d}: {line}" for i, line in enumerate(original_lines)])
+            error_msg = f"{error_msg}\n\nFile content:\n{file_content}"
+        else:
+            # File too large, just indicate size
+            error_msg = f"{error_msg}\n\nFile is large ({len(original_lines)} lines) - showing first 50 lines:\n"
+            file_preview = "\n".join([f"{i+1:4d}: {line}" for i, line in enumerate(original_lines[:50])])
+            error_msg = f"{error_msg}{file_preview}\n..."
+            
+        raise FatalError(error_msg)
 
 
 def _normalize_path(workspace: str, path: str) -> str:

@@ -8,6 +8,7 @@ This module provides the foundation for all callable commands in the system:
 """
 
 import logging
+import traceback
 import textwrap
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -69,7 +70,7 @@ class CommandTemplate:
         lines.append(f"NAME: {self.name} - {short_desc}")
         
         # SYNOPSIS section - flat format
-        synopsis = f"▶{self.name}"
+        synopsis = f"\u25b6{self.name}"
         
         # Add options placeholder to synopsis if flags exist
         flags = [p for p in self.parameters if p.is_flag]
@@ -86,10 +87,10 @@ class CommandTemplate:
         
         # Add STDIN indicator if the command requires data
         if self.requires_data:
-            synopsis += "｜STDIN"
+            synopsis += "\uff5cSTDIN"
             
         # Add terminating character
-        synopsis += "■"
+        synopsis += "\u25a0"
         
         lines.append(f"SYNOPSIS: {synopsis}")
         
@@ -133,7 +134,7 @@ class Command(ABC):
     Commands can be executed with positional parameters and flags, similar to
     command-line programs. For example:
     
-    ▶<cmd> param1 -f val1 --foo val2■
+    \u25b6<cmd> param1 -f val1 --foo val2\u25a0
     
     This executes <cmd> with param1 as a positional parameter, val1 set to the
     parameter corresponding to the flag "f" and val2 to the parameter
@@ -222,6 +223,12 @@ class Command(ABC):
             raise
             
         except Exception as e:
-            # Return failure result with error message
-            logger.error(f"Error executing command {self.__class__.__name__}: {str(e)}")
+            # Capture and log the full stack trace
+            stack_trace = traceback.format_exc()
+            logger.error(
+                f"Error executing command {self.__class__.__name__}: {str(e)}\n"
+                f"Stack Trace:\n{stack_trace}"
+            )
+            
+            # Return failure result with error message (but not stack trace)
             return CommandResult(success=False, error=str(e))
