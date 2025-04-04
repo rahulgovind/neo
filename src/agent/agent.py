@@ -3,6 +3,7 @@ With added support for hierarchical memory management for enhanced context reten
 """
 
 from dataclasses import dataclass
+import os.path
 import logging
 from typing import List
 
@@ -40,7 +41,25 @@ class Agent:
     """
     
     def __init__(self, ctx: Context):
-        self._instructions = self.DEFAULT_INSTRUCTIONS_TEMPLATE.format(workspace=ctx.workspace)
+        # Start with the default instructions
+        instructions = self.DEFAULT_INSTRUCTIONS_TEMPLATE.format(workspace=ctx.workspace)
+        
+        # Check if .neorules exists in the workspace directory
+        neorules_path = os.path.join(ctx.workspace, '.neorules')
+        if os.path.exists(neorules_path) and os.path.isfile(neorules_path):
+            try:
+                # Read the .neorules file
+                with open(neorules_path, 'r') as f:
+                    neorules_content = f.read().strip()
+                
+                # Append the content to the instructions if not empty
+                if neorules_content:
+                    instructions = f"{instructions}\n\nCustom rules from .neorules:\n{neorules_content}"
+                    logger.info(f"Loaded custom rules from {neorules_path}")
+            except Exception as e:
+                logger.error(f"Error reading .neorules file: {e}")
+        
+        self._instructions = instructions
         self.ctx = ctx
         
         # Initialize state with empty message list

@@ -1,0 +1,22 @@
+# Neo Project Custom Rules
+
+## Project Overview
+Neo is an AI assistant designed to help users with various tasks through both CLI and web interfaces. The project implements a modular architecture with clear separation of concerns between components like the CLI interface, Chat management, Agent orchestration, Model interactions, and file operations.
+
+## Guidelines for Code Modifications
+- When making changes to the codebase, you MUST first read and understand ARCHITECTURE.md to maintain architectural integrity
+- If your changes would impact the architectural description or component relationships, you MUST also update ARCHITECTURE.md accordingly
+- Maintain the existing modular structure and separation of concerns
+- Follow the existing code style and patterns
+- Add appropriate error handling for new functionality
+- Consider the implications of changes across both CLI and web interfaces
+- Document new functionality inline with appropriate comments
+
+## Documentation Priority
+Always keep documentation in sync with code changes. This includes:
+1. Updating ARCHITECTURE.md for structural or component changes
+2. Adding inline comments for complex logic
+3. Updating function and class docstrings for API changes
+4. Considering updates to README.md for user-facing changes
+
+Remember that good architecture is maintained through consistent attention to documentation and design principles.
