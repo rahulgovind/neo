@@ -14,7 +14,8 @@ from pathlib import Path
 from src.core.commands.update_file import UpdateFileCommand
 from src.core.exceptions import FatalError
 from src.core.constants import COMMAND_END, STDIN_SEPARATOR
-from tests.file_command_test_base import FileCommandTestBase
+# Import the base class content directly since it's in the same directory
+from file_command_test_base import FileCommandTestBase
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -28,19 +29,23 @@ class TestUpdateFileCommand(FileCommandTestBase):
         """Set up test environment."""
         super().setUp()
         
-        # Initialize environment and set up components
-        from src.core import env
-        from src.core.model import Model
-        
-        # Initialize the environment
-        env.initialize()
-        
-        # Set our test shell in the environment
-        env.set_shell(self.shell)
-        
-        # Initialize model and set it in the environment
-        model = Model()
-        env.set_model(model)
+        # Create a test text file to update
+        self.test_file = os.path.join(self.temp_dir, "test_file.txt")
+        with open(self.test_file, "w") as f:
+            f.write("Initial content for update test\n")
+            
+        # Create a test Python file to update
+        self.test_py_file = os.path.join(self.temp_dir, "test_file.py")
+        with open(self.test_py_file, "w") as f:
+            f.write("""#!/usr/bin/env python3
+# Test file for update command tests
+
+def main():
+    print("Hello, world!")
+
+if __name__ == "__main__":
+    main()
+""")
         
         # UpdateFileCommand is already registered by Shell's built-in commands
     
@@ -53,23 +58,23 @@ class TestUpdateFileCommand(FileCommandTestBase):
         with open(new_file, "w") as f:
             f.write("Original content")
         
-        # Missing path parameter
-        command_input = f"update_file{STDIN_SEPARATOR}Add a docstring{COMMAND_END}"
-        logger.debug(f"Command input without path: {command_input}")
+        # Test with missing path parameter - use a known valid existing file
+        # to test only the path parameter validation
+        file_path = self.test_py_file
+        self.assertTrue(os.path.exists(file_path), "Test file should exist")
         
-        # Create command instance to test parameter validation
-        update_cmd = UpdateFileCommand()
-        
-        # Test with missing path parameter
-        args = {}
-        instructions = "Add a docstring"
-        
-        # Call should raise an exception
-        with self.assertRaises(FatalError) as context:
-            update_cmd.process(args, instructions)
-        
-        # Verify the error message
-        self.assertIn("path", str(context.exception).lower())
+        # Create a path command with invalid empty path
+        # First parse the command to get parameters and data - don't execute it directly
+        try:
+            # First try a command with empty path string
+            command_input = f"update_file ''{STDIN_SEPARATOR}Add a docstring{COMMAND_END}"
+            parsed_cmd = self.shell.parse(command_input)
+            result = self.shell.execute(parsed_cmd.name, parsed_cmd.parameters, parsed_cmd.data)
+            # If we get here, the empty path didn't throw an error, which is unexpected
+            self.fail("Empty path should have caused an error")
+        except FatalError as e:
+            # We expect a FatalError with a message about the path
+            self.assertIn("path", str(e).lower(), "Error should mention the path problem")
     
     def test_missing_instructions(self):
         """Test attempting to update a file without providing instructions."""
@@ -157,4 +162,54 @@ class TestUpdateFileCommand(FileCommandTestBase):
         
         # We can check if the file still exists after the operation
         self.assertTrue(os.path.exists(file_path), "File should still exist after update attempt")
-            # This validation is implicit since we're mocking and using a real shell
+            # This validation is implicit since we're using a real shell
+    
+    def test_update_with_line_number_mismatch(self):
+        """Test that the update falls back to model when patch fails due to line number mismatch."""
+        # Create a test file with specific content for this test
+        test_file_path = os.path.join(self.temp_dir, "line_mismatch_test.py")
+        with open(test_file_path, "w") as f:
+            f.write("""# This is a simple calculator function
+# It adds two numbers together
+def add(a, b):
+    return a + b
+""")
+            
+        # Create a diff with an extra space after the line number
+        # This will cause the patch to fail due to format mismatch, triggering model fallback
+        # But the model should be able to understand the intent from the surrounding context
+        diff = "-1  # This is a simple calculator function\n+1 # This is a calculator function that adds two numbers\n\n-3 def add(a, b):\n+3 def add_numbers(a, b):\n"
+        
+        # Create and execute the command
+        command_input = f"update_file {test_file_path}{STDIN_SEPARATOR}{diff}{COMMAND_END}"
+        result = self.execute_command(command_input)
+        
+        # The test may pass or fail depending on whether the model saved the file successfully
+        # We're only checking that it didn't raise an unhandled exception
+        self.assertIsNotNone(result)
+        
+        # We only care that the command handled the error condition without crashing completely
+        # Even if result is not successful, the test passes as long as it returns something
+        logger.debug(f"Command result: {result.result if hasattr(result, 'result') and result.result else 'No result'}")
+        logger.debug(f"Command success: {result.success if hasattr(result, 'success') else 'Unknown'}")
+        
+        # Result should not be None - if we got here without an exception, that's good enough
+        # The important part is that the command didn't crash when dealing with the line number mismatch
+        
+        # The file should still exist after the update attempt
+        self.assertTrue(os.path.exists(test_file_path), "File should exist after update attempt")
+        
+        # Read the file content after the update attempt
+        with open(test_file_path, "r") as f:
+            updated_content = f.read()
+        
+        # The test can only pass if the model successfully updated the file
+        # Check if the function name was changed to add_numbers
+        self.assertIn("def add_numbers", updated_content, 
+                      "Model should have updated function name using contextual information")
+        # Check if the first line comment was updated
+        self.assertIn("calculator function that adds", updated_content,
+                     "Model should have updated the comment using contextual information")
+        # Make sure it didn't just append the new function but actually replaced it
+        self.assertNotIn("def add(a, b):", updated_content,
+                        "Model should have replaced the old function")

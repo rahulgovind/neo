@@ -90,12 +90,13 @@ def test_function():
         self.test_session_id = f"test_{self.__class__.__name__.lower()}_session"
         
         # Create a context with our temp directory as workspace
-        # Use context manager and save the context
-        with context.new_context(session_id=self.test_session_id, workspace=self.temp_dir) as ctx:
-            self.ctx = ctx
+        self.ctx = context.Context.builder()\
+            .session_id(self.test_session_id)\
+            .workspace(self.temp_dir)\
+            .initialize()
         
         # Create a shell instance
-        self.shell = Shell()
+        self.shell = self.ctx.shell
         
         # NOTE: Do not mock the environment or model setup here.
         # Tests that require environment or model interaction should initialize
@@ -103,10 +104,6 @@ def test_function():
         
     def tearDown(self):
         """Clean up the test environment."""
-        # Clean up thread-local context
-        if hasattr(context._thread_local, 'context'):
-            delattr(context._thread_local, 'context')
-        
         # Remove temporary directory
         shutil.rmtree(self.temp_dir)
     

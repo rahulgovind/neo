@@ -1,7 +1,7 @@
 """
 Update file command implementation.
 
-This module provides the UpdateFile class for updating files based on natural language instructions.
+This module provides the UpdateFile class for updating files based on diff structure.
 """
 
 import os
@@ -13,6 +13,7 @@ from src.core.command import Command, CommandTemplate, CommandParameter
 from src.core.exceptions import FatalError
 from src.core.messages import Message, TextBlock
 from src.core.context import Context
+from src.utils.files import patch
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -20,11 +21,11 @@ logger = logging.getLogger(__name__)
 
 class UpdateFileCommand(Command):
     """
-    Command for updating files based on natural language instructions.
+    Command for updating files based on a diff structure.
     
-    Takes a file path as a parameter and natural language instructions as data,
-    then uses the model to read the file and generate updated content based on
-    the instructions.
+    Takes a file path as a parameter and a diff structure as data,
+    then applies the diff to update the file content. If the diff cannot be applied,
+    it falls back to using the model to perform the update.
     """
     
     def template(self) -> CommandTemplate:
@@ -33,15 +34,22 @@ class UpdateFileCommand(Command):
             name="update_file",
             requires_data=True,
             description=textwrap.dedent("""
-                Update a file based on natural language instructions.
-                Instructions must be explicit and clear for optimal results.
+                Update a file using a diff structure.
                 
-                Example:
-                ▶update_file path/to/file.py｜Add a docstring to the main function that explains it processes user input■
-                ✅File updated successfully■
+                The update_file command modifies an existing file specified by PATH according 
+                to the diff provided in STDIN.
                 
-                ▶update_file config.json｜Change the port number in the server section from 8080 to 9000■
-                ✅File updated successfully■
+                The PATH argument can be a relative or absolute path to an existing file.
+                
+                The diff format is:
+                - Lines starting with '-' indicate lines to delete from the original content
+                - Lines starting with '+' indicate lines to add
+                - Lines starting with ' ' indicate unmodified lines that should match for validation
+                
+                The line number follows the prefix and precedes the line content.
+                For example: '-3 existing line' means delete line 3.
+                
+                If a consecutive chunk of lines is being updated, the deletions must precede the additions.
             """).strip(),
             parameters=[
                 CommandParameter(
@@ -51,33 +59,21 @@ class UpdateFileCommand(Command):
                     is_positional=True
                 )
             ],
-            manual=textwrap.dedent("""
-                The update_file command modifies an existing file based on natural language instructions.
+            examples=textwrap.dedent("""
+                ▶update_file path/to/file.py｜-3 def old_function():
++3 def new_function():
+ 4   # rest of the function■
+                ✅File updated successfully■
                 
-                It reads the current content of the file, processes your instructions, and then
-                updates the file with the modified content.
+                ▶update_file config.json｜-5 "port": 8080,
++5 "port": 9000,■
+                ✅File updated successfully■
                 
-                Usage:
-                  update_file <path> | <instructions>
-                
-                Arguments:
-                  path       Path to the file to update (required)
-                
-                Instructions:
-                  Provide natural language instructions for how to modify the file.
-                  Instructions must be as explicit and clear as possible for optimal results.
-                  Specify exactly what needs to be changed, where the changes should be made,
-                  and how the code should be modified.
-                
-                Examples:
-                  ▶update_file path/to/file.py｜Add a docstring to the main function■
-                  ✅File updated successfully■
-                
-                  ▶update_file config.json｜Change the port to 9000■
-                  ✅File updated successfully■
-                
-                  ▶update_file src/app.js｜Fix the error in the login function■
-                  ❌Error: No such file or directory■
+                ▶update_file src/app.js｜-8 function login() {
+-9   // Old implementation
++8 function login() {
++9   // New implementation■
+                ❌Error: No such file or directory■
             """).strip()
         )
     
@@ -85,20 +81,20 @@ class UpdateFileCommand(Command):
         """Get system prompt for the model"""
         return textwrap.dedent("""
             You are a specialized file updating assistant. Your task is to modify a file based on 
-            natural language instructions.
+            a diff structure that could not be applied automatically.
             
-            1. You have been provided with the current content of a file and instructions for how to update it.
-            2. Carefully analyze the file content and understand what changes are requested.
-            3. Make only the changes specified in the instructions, preserving everything else.
+            1. You have been provided with the current content of a file and a diff that failed to apply.
+            2. Carefully analyze the file content and understand what changes are requested by the diff.
+            3. Make only the changes that align with the intent of the diff, preserving everything else.
             4. Use the write_file command to save the updated content.
             5. Be precise and maintain the original formatting and style of the file.
-            6. If the instructions are unclear or would result in invalid code/content, explain the issue.
+            6. If the diff cannot be reasonably applied, explain the issue.
             
             Remember to:
             - Preserve indentation, spacing, and code style
-            - Only make the changes specified in the instructions
+            - Only make the changes aligned with the intent of the diff
             - Use the write_file command with the same path to save the updated file
-            - If the instructions are ambiguous, ask for clarification before making changes
+            - If you cannot determine what changes are needed, explain why
         """).strip()
     
     def process(self, ctx: Context, args: Dict[str, Any], data: Optional[str] = None) -> str:
@@ -108,51 +104,80 @@ class UpdateFileCommand(Command):
         if not file_path:
             raise FatalError("No file path provided")
         
-        # Get the update instructions from data
-        instructions = data
-        if not instructions:
-            raise FatalError("No update instructions provided")
+        # Get the diff from data
+        diff_text = data
+        if not diff_text:
+            raise FatalError("No diff provided")
         
         # Get model and shell from context
         model = ctx.model
         shell = ctx.shell
         
-        # First, read the file directly using the shell
-        read_result = shell.execute("read_file", parameters={"path": file_path})
-        if not read_result.success:
-            return f"❌{read_result.error}"
-        
-        file_content = read_result.result
-        
-        # Build the initial message with file content and update instructions
-        initial_message = (
-            f"I need to update the file at '{file_path}' with these instructions: {instructions}.\n\n"
-            f"Here is the current content of the file:\n\n{file_content}\n\n"
-            f"Please make the necessary changes as specified in the instructions and use the write_file command to save the updated content."
-        )
-        
-        # Create messages
-        user_msg = Message(role="user")
-        user_msg.add_content(TextBlock(initial_message))
-        messages = [user_msg]
-        
-        # Process the message with the model - only allowing write_file command
-        system_prompt = self._get_system_prompt()
-        response = model.process(
-            system=system_prompt,
-            messages=messages,
-            commands=["write_file"],
-            auto_execute_commands=True
-        )
-        
-        # Check if any write_file command was executed successfully
-        for message in messages:
-            if message.role == "user" and message.has_command_executions():
-                # Check for success message in the results
-                if "File written successfully" in message.text:
-                    logger.info(f"File update process completed for {file_path}")
-                    return f"✅File updated successfully"
-        
-        logger.info(f"File update process completed for {file_path}")
-        # If we got here without finding a successful write, return the model response
-        return response.text
+        # First try to apply the diff using the patch function
+        logger.info(f"Attempting to apply diff to {file_path}")
+        try:
+            # Call the patch function which now throws exceptions on failure
+            updated_content = patch(file_path, diff_text)
+            
+            # If we got here, patch succeeded, write the updated content to the file
+            workspace = ctx.workspace
+            write_result = shell.execute(
+                "write_file", 
+                parameters={
+                    "path": file_path,
+                    "workspace": workspace
+                },
+                data=updated_content
+            )
+            
+            if write_result.success:
+                logger.info(f"Successfully applied diff to {file_path}")
+                return f"✅File updated successfully"
+            else:
+                return f"❌{write_result.error}"
+                
+        except FatalError as e:
+            # If patch failed with a FatalError, fall back to using the model
+            error_message = str(e)
+            logger.warning(f"Diff application failed: {error_message}. Falling back to model.")
+            
+            # Get the original content of the file with line numbers
+            read_result = shell.execute("read_file", parameters={"path": file_path, "include_line_numbers": True})
+            if not read_result.success:
+                return f"❌{read_result.error}"
+            
+            file_content = read_result.result
+            
+            # Build the initial message with file content and diff
+            initial_message = (
+                f"I need to update the file at '{file_path}' with this diff that couldn't be applied automatically:\n\n{diff_text}\n\n"
+                f"Here is the current content of the file:\n\n{file_content}\n\n"
+                f"Please make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content."
+            )
+            
+            # Create messages
+            user_msg = Message(role="user")
+            user_msg.add_content(TextBlock(initial_message))
+            messages = [user_msg]
+            
+            # Process the message with the model - only allowing write_file command
+            system_prompt = self._get_system_prompt()
+            try:
+                response = model.process(
+                    system=system_prompt,
+                    messages=messages,
+                    commands=["write_file"],
+                    auto_execute_commands=True
+                )
+                
+                # Check if write_file command was executed successfully in the response
+                if hasattr(response, 'text') and response.text and "File written successfully" in response.text:
+                    logger.info(f"File update process completed using model for {file_path}")
+                    return f"✅File updated successfully (via Model)"
+            except Exception as e:
+                logger.error(f"Error in model processing for file update: {str(e)}")
+                return f"❌Error during model-based update: {str(e)}"
+            
+            logger.info(f"File update process completed for {file_path} but may not have been successful")
+            # If we got here without finding a successful write, return the model response
+            return response.text

@@ -13,7 +13,8 @@ from src.core.messages import CommandResult, ParsedCommand
 from src.core.commands.read_file import ReadFileCommand
 from src.core.commands.write_file import WriteFileCommand
 from src.core.commands.update_file import UpdateFileCommand
-from src.core.commands.search_file import SearchFileCommand
+from src.core.commands.grep import GrepCommand
+from src.core.commands.find import FindCommand
 from src.core.constants import COMMAND_END, COMMAND_START, STDIN_SEPARATOR
 from src.core.context import Context
 from src.core.messages import CommandCall, CommandResult
@@ -179,7 +180,7 @@ class Shell:
         
         return result_blocks
     
-    def describe(self, command_name: str, extended: bool = False) -> str:
+    def describe(self, command_name: str) -> str:
         """
         Get the manual documentation for a command.
         
@@ -187,7 +188,7 @@ class Shell:
             ValueError: If the command is not registered
         """
         command = self.get_command(command_name)
-        return command.describe(extended)
+        return command.describe()
         
     def _register_builtin_commands(self) -> None:
         """
@@ -197,6 +198,7 @@ class Shell:
         self.register_command(ReadFileCommand())
         self.register_command(WriteFileCommand())
         self.register_command(UpdateFileCommand())
-        self.register_command(SearchFileCommand())
+        self.register_command(GrepCommand())
+        self.register_command(FindCommand())
         
         logger.debug(f"Registered built-in commands: {', '.join(self.list_commands())}")

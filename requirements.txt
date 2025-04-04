@@ -1,5 +1,6 @@
 # Core dependencies
 openai>=1.0.0,<2.0.0  # OpenAI client for LLM interface
+tiktoken>=0.5.0  # For token counting with OpenAI models
 python-dotenv>=1.0.0  # For loading environment variables from .env file
 PyYAML>=6.0          # For YAML serialization of requests
 numpy>=1.24.0        # For numerical operations and embeddings

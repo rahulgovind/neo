@@ -9,7 +9,9 @@ import datetime
 import requests
 import time
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Union
+
+import tiktoken
 
 import openai
 
@@ -33,17 +35,16 @@ class Client:
     When executing commands, follow this exact format:
     
     - The command starts with "▶"
-    - "▶" is followed by the command name
-    - The command name is followed by a space
-    - The command name is followed by the parameters
-    - The command data is separated by a pipe (|) from the command name and parameters. The command data is optional.
+    - "▶" is followed by the command name and then a space.
+    - Named arguments (-f, --foo) should come before positional arguments
+    - If STDIN is required it can be specified with a pipe (｜) after the parameters. STDIN is optional.
     
     Examples:
     ```
-    ▶command_name v1 -f v2 --foo v3｜Do something■
+    ▶command_name -f v2 --foo v3 v1｜Do something■
     ✅File updated successfully■
     
-    ▶command_name v1 -f v2 --foo v3｜Erroneous data■
+    ▶command_name -f v2 --foo v3 v1｜Erroneous data■
     ❌Error■
     ```
     
@@ -176,12 +177,44 @@ class Client:
             
             # Process and return the response
             logger.debug(f"Received response: {response}")
-            return self._parse_response(response, session_id=current_session_id)
+            return self._parse_response(response, session_id, request_data)
             
         except Exception as e:
             logger.error(f"Error processing messages: {e}", exc_info=True)
             raise
     
+    def count_tokens(self, request_data: Dict[str, Any]) -> Optional[int]:
+        """Calculate token count for messages using tiktoken.
+        
+        Args:
+            request_data: Dict containing the request data with messages
+            
+        Returns:
+            Optional[int]: Token count or None if there was an error
+        """
+        try:
+            # Use gpt-4o encoding by default
+            encoding = tiktoken.encoding_for_model("gpt-4o")
+            
+            # Concatenate all messages into a single string for token counting
+            all_text = ""
+            
+            # Process the messages array from the request data
+            for msg in request_data.get("messages", []):
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                
+                # Add role and content to the text
+                all_text += f"{role}: {content}\n\n"
+            
+            # Count tokens using tiktoken
+            num_tokens = len(encoding.encode(all_text))
+            
+            return num_tokens
+        except Exception as e:
+            logger.error(f"Error counting tokens: {str(e)}")
+            return None
+        
     def _send_request(self, request_data: Dict[str, Any], session_id: str) -> Completion:
         """
         Send a request to the LLM and return the response.
@@ -207,7 +240,10 @@ class Client:
             "model": model_name,
             "request": request_data,
             "meta": {
-                "message_count": len(request_data.get('messages', []))
+                "timestamp": datetime.datetime.now().isoformat(),
+                "session_id": session_id,
+                "message_count": len(request_data.get('messages', [])),
+                "approx_num_tokens": self.count_tokens(request_data)
             }
         }
         
@@ -220,6 +256,7 @@ class Client:
         try:
             # Send the request to the LLM
             response = self._client.chat.completions.create(**request_data)
+            # Process response with updated _parse_response that takes request_data
             
             # Convert the response to a dictionary for logging
             response_dict = response.to_dict()
@@ -234,7 +271,8 @@ class Client:
                 "model": model_name,
                 "response": response_dict,
                 "meta": {
-                    "message_count": len(request_data.get('messages', []))
+                    "message_count": len(request_data.get('messages', [])),
+                    "approx_num_tokens": self.count_tokens(request_data)
                 }
             }
             
@@ -254,7 +292,8 @@ class Client:
                 "model": model_name,
                 "error": str(e),
                 "meta": {
-                    "message_count": len(request_data.get('messages', []))
+                    "message_count": len(request_data.get('messages', [])),
+                    "approx_num_tokens": self.count_tokens(request_data)
                 }
             }
             
@@ -319,7 +358,7 @@ class Client:
         }
         return metadata
 
-    def _parse_response(self, response, session_id: str) -> Message:
+    def _parse_response(self, response, session_id: str, request_data: Dict[str, Any]) -> Message:
         """
         Parse LLM response to extract text and command calls.
         
@@ -352,7 +391,9 @@ class Client:
         from collections import deque
         
         # Basic metadata with usage stats
-        metadata = {}
+        metadata = {
+            "approx_num_tokens": self.count_tokens(request_data)
+        }
         
         # Add additional metadata for OpenRouter completions
         if self.api_url and "openrouter.ai" in self.api_url:

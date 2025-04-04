@@ -51,28 +51,78 @@ class CommandTemplate:
     name: str
     description: str
     parameters: List[CommandParameter]
-    manual: str = ""
-    epilog: str = ""
+    examples: str = ""
     requires_data: bool = False
     
-    def format_manual(self, extended: bool = False) -> str:
+    def manual(self) -> str:
         """Format the manual as a string, similar to a man page.
         
-        Args:
-            extended: If True, include the extended manual text
-            
         Returns:
             Formatted manual string
         """
-        from src.utils.command_builder import CommandBuilder
-        return CommandBuilder.format_manual(
-            name=self.name,
-            description=self.description,
-            parameters=self.parameters,
-            manual=self.manual,
-            epilog=self.epilog,
-            extended=extended
-        )
+        lines = []
+        
+        # NAME section - flat format
+        # Get first line of description for the short summary
+        short_desc = self.description.strip().split("\n")[0] if self.description else ""
+        lines.append(f"NAME: {self.name} - {short_desc}")
+        
+        # SYNOPSIS section - flat format
+        synopsis = f"▶{self.name}"
+        
+        # Add options placeholder to synopsis if flags exist
+        flags = [p for p in self.parameters if p.is_flag]
+        if flags:
+            synopsis += " [OPTION]..."
+            
+        # Add positional parameters to synopsis
+        pos_params = [p for p in self.parameters if p.is_positional]
+        for param in pos_params:
+            param_name = param.name.upper()
+            if not param.required:
+                param_name = f"[{param_name}]"
+            synopsis += f" {param_name}"
+        
+        # Add STDIN indicator if the command requires data
+        if self.requires_data:
+            synopsis += "｜STDIN"
+            
+        # Add terminating character
+        synopsis += "■"
+        
+        lines.append(f"SYNOPSIS: {synopsis}")
+        
+        # DESCRIPTION section - on new lines
+        lines.append("DESCRIPTION:")
+        if self.description:
+            desc_lines = self.description.strip().split("\n")
+            # Use all lines of the description
+            for line in desc_lines:
+                lines.append(f"    {line}")
+        
+        # OPTIONS section with flags - flat format
+        if flags:
+            lines.append("OPTIONS:")
+            for param in flags:
+                option_str = ""
+                if param.short_flag and param.long_flag:
+                    option_str = f"-{param.short_flag}, --{param.long_flag}"
+                elif param.short_flag:
+                    option_str = f"-{param.short_flag}"
+                elif param.long_flag:
+                    option_str = f"--{param.long_flag}"
+                
+                # Flatten flag description
+                param_desc = " ".join(param.description.split("\n"))
+                lines.append(f"    {option_str}: {param_desc}")
+        
+        # Examples section - on new lines
+        if self.examples:
+            lines.append("EXAMPLES:")
+            for example_line in self.examples.split("\n"):
+                lines.append(f"    {example_line}")
+        
+        return "\n".join(lines)
 
 
 class Command(ABC):
@@ -82,7 +132,7 @@ class Command(ABC):
     Commands can be executed with positional parameters and flags, similar to
     command-line programs. For example:
     
-    <cmd> param1 -f val1 --foo val2
+    ▶<cmd> param1 -f val1 --foo val2■
     
     This executes <cmd> with param1 as a positional parameter, val1 set to the
     parameter corresponding to the flag "f" and val2 to the parameter
@@ -117,11 +167,11 @@ class Command(ABC):
         """
         pass
     
-    def describe(self, extended: bool = False) -> str:
+    def describe(self) -> str:
         """
         Returns the manual describing how to use the command.
         """
-        return self.template().format_manual(extended)
+        return self.template().manual()
     
     def parse(self, command_input: str) -> Tuple[Dict[str, Any], Optional[str]]:
         """

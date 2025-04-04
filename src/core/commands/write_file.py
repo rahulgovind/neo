@@ -42,10 +42,14 @@ class WriteFileCommand(Command):
             name="write_file",
             requires_data=True,
             description=textwrap.dedent("""
-                Create a new file or completely overwrite an existing file in the workspace.
+                Create a new file or overwrite an existing file.
                 
-                Example:
-
+                The write_file command creates or overwrites a file specified by PATH using STDIN as content.
+                
+                The PATH argument can be a relative path from the current workspace or an absolute path.
+                Parent directories are created automatically if they don't exist.
+            """),
+            examples=textwrap.dedent("""
                 ▶write_file path/to/new_file.py｜def hello_world():
                 print("Hello, World!")■
                 ✅SUCCESS (+4,-0)■

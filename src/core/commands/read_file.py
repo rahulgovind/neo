@@ -29,8 +29,6 @@ class ReadFileCommand(Command):
     - Uses the workspace from the Context
     """
     
-
-    
     def template(self) -> CommandTemplate:
         """
         Returns the command template with parameter definitions and documentation.
@@ -38,18 +36,21 @@ class ReadFileCommand(Command):
         return CommandTemplate(
             name="read_file",
             description=textwrap.dedent("""
-                Read a file from the file system.
+                Read and display file contents.
                 
-                By default, line numbers are not included in the output. Use --include-line-numbers to add line numbers.
+                The read_file command outputs the contents of a file specified by PATH.
                 
-                Example:
+                PATH can be a relative or absolute path to a file.
+                By default, line numbers are not included in the output.
+                """),
+            examples=textwrap.dedent("""
                 ▶read_file path/to/file.py■
                 ✅import os
                 import sys
                 
                 print("Hello, World!")■
                 
-                ▶read_file path/to/file.py --include-line-numbers■
+                ▶read_file --include-line-numbers path/to/file.py■
                 ✅1 import os
                 2 import sys
                 3 

@@ -16,7 +16,8 @@ from src.core.commands.read_file import ReadFileCommand
 from src.core.exceptions import FatalError
 from src.core.constants import COMMAND_END
 from src.utils.command_builder import CommandBuilder
-from tests.file_command_test_base import FileCommandTestBase
+# Import the base class content directly since it's in the same directory
+from file_command_test_base import FileCommandTestBase
 
 # Configure logging
 logger = logging.getLogger(__name__)
