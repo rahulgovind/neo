@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, List
 from src.core.command import Command, CommandTemplate, CommandParameter
 from src.core.exceptions import FatalError
 from src.core.messages import Message, TextBlock
-from src.core import env
+from src.core.context import Context
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -101,7 +101,7 @@ class UpdateFileCommand(Command):
             - If the instructions are ambiguous, ask for clarification before making changes
         """).strip()
     
-    def process(self, args: Dict[str, Any], data: Optional[str] = None) -> str:
+    def process(self, ctx: Context, args: Dict[str, Any], data: Optional[str] = None) -> str:
         """Process the update file command"""
         # Get the file path from arguments
         file_path = args.get("path")
@@ -113,9 +113,9 @@ class UpdateFileCommand(Command):
         if not instructions:
             raise FatalError("No update instructions provided")
         
-        # Load model and shell
-        model = env.load_model()
-        shell = env.load_shell()
+        # Get model and shell from context
+        model = ctx.model
+        shell = ctx.shell
         
         # First, read the file directly using the shell
         read_result = shell.execute("read_file", parameters={"path": file_path})

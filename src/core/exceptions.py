@@ -13,14 +13,3 @@ class FatalError(Exception):
     normal command failure.
     """
     pass
-
-
-class ContextNotSetError(FatalError):
-    """
-    Exception raised when attempting to access context that hasn't been set.
-    
-    This is a fatal error because commands should always have a valid context
-    to operate in. If the context is not set, it indicates a programming error
-    or system misconfiguration.
-    """
-    pass

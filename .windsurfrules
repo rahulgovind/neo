@@ -37,7 +37,10 @@ Note the following for the command result -
 When writing tests - 
 - DO NOT mock anything unless otherwise requested. 
 
-If you need to kill a process - 
+# Running tests
+- Directly use pytest to run python tests instead of python -m pytest
+
+# Killing processes
 - Use "ps aux | grep <process_name>" to find the process ID of the process you want to debug or interact with. 
 - Use "kill -9 <process_id>" to kill the process.
 

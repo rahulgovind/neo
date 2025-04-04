@@ -10,16 +10,13 @@ import os
 import sys
 import logging
 import argparse
-import random
-import datetime
 from typing import Dict, Any, Optional, List
 
 from src.core.model import Model
-from src.core.context import Context
-from src.agent import Agent
+from src.core.context import Context, ContextBuilder
+from src.agent.agent import Agent
 from src.core.shell import Shell
-from src.core import env
-from src.apps.chat import Chat, ChatFactory
+from src.apps.chat import Chat
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -35,24 +32,6 @@ class CLI:
     - Initializing the model, functions, and agent
     - Launching the interactive chat
     """
-    
-    # Default system instructions for the agent
-    DEFAULT_INSTRUCTIONS = """
-    You are Neo, an AI assistant that can help with a wide range of tasks.
-    
-    You can assist users by:
-    1. Understanding their requirements and questions
-    2. Providing relevant information and explanations
-    3. Engaging in thoughtful conversation
-    
-    - You SHOULD explain your reasoning clearly and offer context for your suggestions. Do this prior to making any command calls.
-    - You MUST not write anything after a command call.
-    - YOU SHOULD make incremental, focused changes when modifying files rather than rewriting everything.
-    
-    Be helpful, accurate, and respectful in your interactions.
-    """
-    
-
     
     @classmethod
     def start(cls) -> None:
@@ -76,14 +55,10 @@ class CLI:
             # Log startup information
             logger.info(f"Starting Neo CLI with workspace: {args.workspace}")
             
-            # Create the agent
-            agent = cls._setup_components(args)
-            
             # Create and launch the chat
-            chat = ChatFactory.create(
-                agent=agent,
+            chat = Chat(
                 workspace=args.workspace,
-                history_file=args.history_file,
+                history_file=args.history_file
             )
             
             # Launch the chat session
@@ -184,76 +159,9 @@ class CLI:
         else:
             # Set conservative default levels for noisy libraries
             logging.getLogger("openai").setLevel(logging.WARNING)
+            logging.getLogger("httpx").setLevel(logging.WARNING)
         
         logger.debug(f"Logging configured with verbosity level {verbosity}")
-    
-    @classmethod
-    def _setup_components(cls, args: argparse.Namespace) -> tuple:
-        """
-        Set up the core application components.
-        
-        This method initializes:
-        1. The Model for LLM communication
-        2. Function registry with available functions
-        3. Agent with instructions and functions
-        
-        Args:
-            args: Parsed command-line arguments
-            
-        Returns:
-            Tuple of (model, agent)
-            
-        Raises:
-            ValueError: If required environment variables are missing
-            Exception: If component initialization fails
-        """
-        try:
-            # Initialize the environment
-            logger.debug("Initializing environment")
-            env.initialize()
-            
-            # Generate a session ID in the format YYYYMMDD_HHMMSS_XXXX
-            now = datetime.datetime.now()
-            date_part = now.strftime("%Y%m%d")
-            time_part = now.strftime("%H%M%S")
-            random_part = f"{random.randint(1000, 9999)}"
-            session_id = f"{date_part}_{time_part}_{random_part}"
-            
-            # Initialize the context before other components
-            logger.debug(f"Initializing context with session_id={session_id} and workspace={args.workspace}")
-            from src.core.context import new_context
-            # Use the context manager pattern
-            with new_context(session_id=session_id, workspace=args.workspace) as ctx:
-                # Initialize the shell
-                logger.debug("Initializing Shell")
-                shell = Shell()
-                
-                # Initialize the model
-                logger.debug("Initializing Model")
-                model = Model()
-                
-                # Set the model and shell in the environment
-                env.set_model(model)
-                env.set_shell(shell)
-            
-            # Get system instructions - using default instructions
-            instructions = cls.DEFAULT_INSTRUCTIONS
-            
-            # Create the agent
-            logger.debug("Initializing Agent")
-            agent = Agent(
-                instructions=instructions,
-            )
-            
-            logger.info("Agent initialized successfully")
-            return agent
-            
-        except Exception as e:
-            logger.error(f"Error setting up components: {e}")
-            # Re-raise with additional context to help with debugging
-            raise Exception(f"Failed to initialize application components: {str(e)}") from e
-    
-
 
 
 def main() -> None:

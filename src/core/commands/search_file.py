@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List
 from src.core.command import Command, CommandTemplate, CommandParameter
 from src.core.exceptions import FatalError
 from src.core.messages import CommandResult
-from src.core import context
+from src.core.context import Context
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -29,6 +29,8 @@ class SearchFileCommand(Command):
     - Allows filtering by file pattern
     - Uses the workspace from the Context
     """
+    
+
     
     def template(self) -> CommandTemplate:
         """
@@ -104,11 +106,12 @@ class SearchFileCommand(Command):
             requires_data=False
         )
     
-    def process(self, args: Dict[str, Any], data: Optional[str] = None) -> str:
+    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> str:
         """
         Process the command with the parsed arguments and optional data.
         
         Args:
+            ctx: Application context
             args: Dictionary of parameter names to their values
             data: Optional data string (not used)
             
@@ -116,10 +119,7 @@ class SearchFileCommand(Command):
             Search results from grep, or error message
         """
         # Get the workspace from the context
-        ctx = context.get()
         workspace = ctx.workspace
-        if not workspace:
-            raise FatalError("No workspace set in context")
         
         pattern = args.get("pattern")
         if not pattern:

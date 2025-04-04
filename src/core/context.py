@@ -1,16 +1,20 @@
 """
-Context module providing thread-local storage for context information with context manager support.
+Context module providing a dataclass for storing context information.
 """
 
-import threading
-from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Optional, Iterator
+import datetime
+import os
+from typing import Optional, TYPE_CHECKING
 
-from src.core.exceptions import ContextNotSetError
+from src.core.exceptions import FatalError
 
-# Thread-local storage for context
-_thread_local = threading.local()
+# For type checking only - not imported at runtime
+if TYPE_CHECKING:
+    from src.core.model import Model
+    from src.core.shell import Shell
+    from src.agent.agent import Agent
+
 
 @dataclass
 class Context:
@@ -19,61 +23,124 @@ class Context:
     
     Attributes:
         session_id: Unique identifier for the current session
-        workspace: Optional path to the code workspace
+        _workspace: Optional path to the code workspace
     """
     session_id: str
-    workspace: Optional[str] = None
+    _workspace: Optional[str] = None
+    _model: Optional['Model'] = None
+    _shell: Optional['Shell'] = None
+    _agent: Optional['Agent'] = None
+    
+    @classmethod
+    def builder(cls) -> 'ContextBuilder':
+        """Create a new ContextBuilder instance."""
+        return ContextBuilder()
+    
+    @property
+    def workspace(self) -> str:
+        """Get the workspace path, defaulting to current directory if not set."""
+        if self._workspace is None:
+            return os.getcwd()
+        return self._workspace
+    
+    @workspace.setter
+    def workspace(self, value: Optional[str]):
+        """Set the workspace path."""
+        self._workspace = value
+    
+    @property
+    def model(self) -> 'Model':
+        """Get the model from the context, raising an error if it's not available."""
+        if self._model is None:
+            raise FatalError("Model not available in context")
+        return self._model
+    
+    @property
+    def shell(self) -> 'Shell':
+        """Get the shell from the context, raising an error if it's not available."""
+        if self._shell is None:
+            raise FatalError("Shell not available in context")
+        return self._shell
+    
+    @property
+    def agent(self) -> 'Agent':
+        """Get the agent from the context, raising an error if it's not available."""
+        if self._agent is None:
+            raise FatalError("Agent not available in context")
+        return self._agent
 
-@contextmanager
-def new_context(session_id: str, workspace: Optional[str] = None) -> Iterator[Context]:
-    """
-    Context manager to temporarily set a new context and restore the previous one.
-    
-    Args:
-        session_id: Unique identifier for the current session
-        workspace: Optional path to the code workspace
-        
-    Yields:
-        The created Context object
-        
-    Example:
-        with new_context(session_id="abc123", workspace="/path/to/workspace"):
-            # Code that runs with the new context
-        # Context is reset to previous value after the block
-    """
-    # Save the previous context if it exists
-    previous_context = getattr(_thread_local, 'context', None)
-    
-    # Set the new context
-    context = Context(session_id=session_id, workspace=workspace)
-    _thread_local.context = context
-    
-    try:
-        # Yield control back to the caller
-        yield context
-    finally:
-        # Restore the previous context
-        if previous_context is not None:
-            _thread_local.context = previous_context
-        else:
-            # If there was no previous context, delete the attribute
-            if hasattr(_thread_local, 'context'):
-                delattr(_thread_local, 'context')
 
-# with_context function has been removed as it should not be used.
-# Use the new_context context manager pattern instead:
-
-def get() -> Context:
+class ContextBuilder:
     """
-    Get the current thread's context.
+    Builder class for constructing Context objects with all dependencies.
+    Provides a fluent interface for setting context attributes.
+    """
     
-    Returns:
-        The current Context object
+    def __init__(self):
+        self._session_id = None
+        self._workspace = None
+        self._model_name = "anthropic/claude-3.7-sonnet"
+        self._context = None
+    
+    def _copy(self) -> 'ContextBuilder':
+        """Create a copy of this builder with the same state."""
+        new_builder = ContextBuilder()
+        new_builder._session_id = self._session_id
+        new_builder._workspace = self._workspace
+        new_builder._model_name = self._model_name
+        return new_builder
+    
+
+    
+    def session_id(self, session_id: str) -> 'ContextBuilder':
+        """Set the session ID for the context."""
+        new_builder = self._copy()
+        new_builder._session_id = session_id
+        return new_builder
+    
+    def workspace(self, workspace: str) -> 'ContextBuilder':
+        """Set the workspace path for the context."""
+        new_builder = self._copy()
+        new_builder._workspace = workspace
+        return new_builder
+    
+    def model(self, model_name: str) -> 'ContextBuilder':
+        """Set the model name to be used."""
+        new_builder = self._copy()
+        new_builder._model_name = model_name
+        return new_builder
+    
+    def initialize(self) -> Context:
+        """
+        Initialize the context with all required components.
         
-    Raises:
-        ContextNotSetError: If the context has not been set
-    """
-    context = getattr(_thread_local, 'context', None)
-    if context is None:
-        raise ContextNotSetError("Context has not been set. Use 'with new_context(...):' first.")
-    return context
+        Returns:
+            The fully initialized Context instance
+        
+        Raises:
+            ValueError: If any required fields are missing
+        """
+        if not self._session_id:
+            # Generate a session ID with format session-MMDD-HHMMSS using local timezone
+            now = datetime.datetime.now(datetime.timezone.utc).astimezone()
+            self._session_id = f"session-{now.month:02d}{now.day:02d}-{now.hour:02d}{now.minute:02d}{now.second:02d}"
+        
+        # Create the initial context
+        self._context = Context(
+            session_id=self._session_id,
+            _workspace=self._workspace
+        )
+        
+        # Initialize the shell
+        from src.core.shell import Shell
+        self._context._shell = Shell(ctx=self._context)
+        
+        # Initialize the model
+        from src.core.model import Model
+        self._context._model = Model(ctx=self._context, model_id=self._model_name)
+        
+        # Initialize the agent
+        from src.agent.agent import Agent
+        self._context._agent = Agent(ctx=self._context)
+        
+        return self._context

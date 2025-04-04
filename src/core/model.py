@@ -5,9 +5,9 @@ Handles command parsing and message processing while delegating client operation
 
 import logging
 import textwrap
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 
-from src.core import env
+from src.core.context import Context
 from src.core.client import Client
 from src.core.constants import (
     COMMAND_START, COMMAND_END, STDIN_SEPARATOR, 
@@ -28,89 +28,21 @@ class Model:
     Handles command parsing and message processing.
     """
     
-    def __init__(self, model: str = "anthropic/claude-3.7-sonnet"):
+    def __init__(self, ctx: Context, model_id: str = "anthropic/claude-3.7-sonnet"):
         """
         Initialize the Model for LLM interactions.
         
         Args:
-            model: The model identifier to use for requests
+            ctx: Context object
+            model_id: The model identifier to use for requests
         """
-        self._model = model
+        self.ctx = ctx
+        self.model_id = model_id
         
         # Create the client instance
         self._client = Client()
     
-    def _process_commands(self, messages: List[Message]) -> List[Message]:
-        """
-        Process command calls in the last message if it's from the assistant.
-        All command results are collected into a single user message.
-        
-        Args:
-            messages: List of messages to process
-            
-        Returns:
-            Updated list of messages with command results
-        """
-        # Check if the last message is from the assistant and has command calls
-        if not messages or messages[-1].role != "assistant" or not messages[-1].has_command_executions():
-            return messages
-            
-        # Get all command calls from the last message
-        command_calls = messages[-1].get_command_calls()
-        
-        # Create a list to collect all command results
-        result_blocks = []
-        
-        # Get the shell instance from env
-        shell = env.load_shell()
-        
-        # Execute each command and collect the results
-        for cmd_call in command_calls:
-            try:
-                # Skip command calls without end markers
-                if not cmd_call.end_marker_set:
-                    error_result = CommandResult(
-                        result=None,
-                        success=False,
-                        error="Command call missing end marker"
-                    )
-                    result_blocks.append(error_result)
-                    continue
-                    
-                # Parse the command using the shell
-                command_text = cmd_call.content() + COMMAND_END
-                parsed_cmd = shell.parse(command_text)
-                
-                # Execute the command
-                result = shell.execute(
-                    parsed_cmd.name,
-                    parsed_cmd.parameters,
-                    parsed_cmd.data
-                )
-                
-                # Add the result to our collection
-                result_blocks.append(result)
-                
-            except Exception as e:
-                # Create an error result and add it to our collection
-                error_result = CommandResult(
-                    result=None,
-                    success=False,
-                    error=str(e)
-                )
-                result_blocks.append(error_result)
-        
-        # If we have results, create a single user message with all results
-        if result_blocks:
-            result_message = Message(
-                role="user",
-                content=result_blocks
-            )
-            messages.append(result_message)
-            
-        return messages
-    
-    def _get_command_descriptions(self, commands: Optional[List[str]] = None) -> str:
+    def _get_command_descriptions(self, commands: List[str]) -> str:
         """
         Get formatted descriptions of available commands.
         
@@ -120,12 +52,10 @@ class Model:
         Returns:
             Formatted string with command descriptions
         """
-        shell = env.load_shell()
-        
-        # If no specific commands are provided, use all available commands
-        if commands is None:
-            commands = shell.list_commands()
+        assert commands is not None, "commands must be a non-empty list of command names"
             
+        # Get the shell instance from context
+        shell = self.ctx.shell
         command_descriptions = []
         for cmd_name in commands:
             try:
@@ -135,18 +65,19 @@ class Model:
             except ValueError:
                 # Command not found in shell
                 pass
-                
-        return "\n\n".join(command_descriptions)
+
+        return (
+            "Available commands:\n" + 
+            "\n\n".join(command_descriptions)
+        )
     
     def process(self, system: str, messages: List[Message], commands: List[str], auto_execute_commands: bool = False) -> Message:
         """
         Process a list of messages through the LLM and return the response.
-        If the last message is from the assistant and contains command calls,
-        execute those commands and add the results to the messages.
         
         Args:
             system: System prompt to provide context and instructions
-            messages: List of messages to process
+            messages: List of message objects to process
             commands: List of command names to make available
             auto_execute_commands: If True, automatically execute commands and process
                                   until no more commands are found. If False (default),
@@ -155,15 +86,13 @@ class Model:
         Returns:
             Message: LLM's response as a Message object
         """
-        # Process any command calls in the messages
-        messages = self._process_commands(messages)
-        
-        # Get command descriptions
-        command_descriptions = self._get_command_descriptions(commands)
-        
-        # Create a complete system message with commands
         complete_system = system
-        if command_descriptions:
+        
+        if commands:
+            # Get command descriptions
+            command_descriptions = self._get_command_descriptions(commands)
+            
+            # Create a complete system message with commands
             complete_system += "\n\n" + "Available commands:\n" + command_descriptions
         
         # Create a system message
@@ -173,54 +102,35 @@ class Model:
         )
         
         # Add system message at the beginning of the messages list
-        all_messages = [system_message] + messages
+        messages_to_send = [system_message] + messages
         
         # Process the messages with the client
-        response = self._client.process(
-            messages=all_messages,
-            model=self._model,
-            stop=[SUCCESS_PREFIX, ERROR_PREFIX]
-        )
-        
-        # If auto_execute_commands is True, continue processing until no more commands
-        if auto_execute_commands:
-            current_response = response
-            current_messages = messages.copy()
+        while True:
+            response = self._client.process(
+                messages=messages_to_send,
+                model=self.model_id,
+                stop=[SUCCESS_PREFIX, ERROR_PREFIX],
+                session_id=self.ctx.session_id
+               )
             
-            # Continue processing as long as there are command executions
-            while current_response.has_command_executions():
-                # Add the response to messages
-                current_messages.append(current_response)
+            # If auto_execute_commands is True, continue processing until no more commands
+            if auto_execute_commands and response.has_command_executions():
+                messages_to_send.append(response)
                 
-                # Process commands in the response
-                current_messages = self._process_commands(current_messages)
+                command_calls = response.get_command_calls()
                 
-                # If no command results were added, break the loop
-                if not current_messages[-1].role == "user":
-                    break
-                    
-                # Prepare messages for next iteration (skip system message)
-                all_messages = [system_message] + current_messages
+                # Process commands in the response if it has them
+                shell = self.ctx.shell
+                result_blocks = shell.process_commands(command_calls)
                 
-                # Get next response
-                current_response = self._client.process(
-                    messages=all_messages,
-                    model=self._model,
-                    stop=[SUCCESS_PREFIX, ERROR_PREFIX]
+                # If we have results, create a single user message with all results
+                result_message = Message(
+                    role="user",
+                    content=result_blocks
                 )
-            
-            # Return the final response
-            return current_response
+                messages_to_send.append(result_message)
+            else:
+                break
         
+        # Return the final response
         return response
-    
-
-    
-
-    
-
-    
-
-    
-
-    

@@ -31,6 +31,9 @@ logging.basicConfig(
     ]
 )
 
+# Set conservative default levels for noisy libraries
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 # Import version from VERSION file for use within the package
 try:
     with open(os.path.join(os.path.dirname(__file__), "..", "VERSION"), "r") as f:

@@ -6,15 +6,17 @@ Handles client instantiation and request/response logging.
 import os
 import logging
 import datetime
+import requests
+import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
 import openai
 
 from src.logging.structured_logger import StructuredLogger
-from src.core import context, env
 from src.core.constants import COMMAND_START, COMMAND_END
 from src.core.messages import TextBlock, CommandCall, Message
+from openai.types import Completion
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -55,39 +57,93 @@ class Client:
         Raises:
             ValueError: If required API_KEY environment variable is missing
         """
-        api_url = os.environ.get("API_URL")
-        api_key = os.environ.get("API_KEY")
+        self.api_url = os.environ.get("API_URL")
+        self.api_key = os.environ.get("API_KEY")
 
-        if not api_key:
+        if not self.api_key:
             logger.error("API_KEY environment variable is not set")
             raise ValueError("API_KEY environment variable is required")
         
         # Initialize client with optional custom base URL
-        client_kwargs = {"api_key": api_key}
-        if api_url:
-            client_kwargs["base_url"] = api_url
+        client_kwargs = {"api_key": self.api_key}
+        if self.api_url:
+            client_kwargs["base_url"] = self.api_url
             
-        try:
-            self.client = openai.Client(**client_kwargs)
-            logger.info("LLM client initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize LLM client: {e}")
-            raise
+        self._client = openai.Client(**client_kwargs)
         
-        # Initialize structured logger as None - will be set up when needed
-        self.structured_logger = None
+        # Initialize structured logger
+        self._logger = StructuredLogger()
     
-    def _setup_logging(self):
-        """
-        Set up structured logger.
-        Only called when needed.
-        """
-        # Initialize the structured logger with the logger name only
-        # The session_id will be fetched when record() is called
-        self.structured_logger = StructuredLogger("requests")
+
         
+    def _build_request(self, messages: List[Message], model: str, stop: List[str] = None, 
+                     include_command_instructions: bool = True) -> Dict[str, Any]:
+        """
+        Build a request for the LLM API.
+        
+        Args:
+            messages: List of messages representing the conversation history
+            model: The model identifier to use for the request
+            stop: Optional list of stop sequences
+            include_command_instructions: Whether to include command instructions in system message
+            
+        Returns:
+            Dict: The prepared request data for the LLM API
+        """
+        processed_messages = []
+        
+        # If this is a system message and we should include command instructions,
+        # append the command instructions to the system message
+        if include_command_instructions and messages and messages[0].role == "system":
+            system_message = messages[0]
+            original_content = system_message.text()
+            
+            # Add command instructions to the system message
+            if self.COMMAND_INSTRUCTIONS not in original_content:
+                system_content = original_content + "\n\n" + self.COMMAND_INSTRUCTIONS
+                processed_messages.append({
+                    "role": "system",
+                    "content": system_content
+                })
+                # Skip the system message in the loop below
+                messages_to_process = messages[1:]
+            else:
+                # If instructions are already included, process normally
+                messages_to_process = messages
+        else:
+            messages_to_process = messages
+        
+        # Process all remaining messages
+        for message in messages_to_process:
+            additional_params = {}
+            if message.metadata.get("cache-control", False):
+                additional_params["cache_control"] = {
+                    "type": "ephemeral"
+                }
+            processed_messages.append({
+                "role": message.role,
+                "content": [{
+                    "type": "text", 
+                    "text": message.text(),
+                    **additional_params
+                }]
+            })
+        
+        # Prepare request data
+        request_data = {
+            "model": model,
+            "messages": processed_messages,
+        }
+        
+        # Add stop sequences if provided
+        if stop:
+            request_data["stop"] = stop
+            
+        return request_data
+    
     def process(self, messages: List[Message], model: str = "anthropic/claude-3.7-sonnet", 
-               stop: List[str] = None, include_command_instructions: bool = True) -> Message:
+           stop: List[str] = None, include_command_instructions: bool = True,
+           session_id: Optional[str] = None) -> Message:
         """
         Process a conversation with the LLM and return the response.
         
@@ -95,6 +151,8 @@ class Client:
             messages: List of messages representing the conversation history
             model: The model identifier to use for the request
             stop: Optional list of stop sequences
+            include_command_instructions: Whether to include command instructions
+            session_id: Optional session identifier for tracking
             
         Returns:
             Message: LLM's response as a Message object
@@ -103,58 +161,28 @@ class Client:
             Exception: Any error during processing is logged and re-raised
         """
         try:
-            # Prepare messages list
-            processed_messages = []
-            
-            # If this is a system message and we should include command instructions,
-            # append the command instructions to the system message
-            if include_command_instructions and messages and messages[0].role == "system":
-                system_message = messages[0]
-                original_content = system_message.text()
-                
-                # Add command instructions to the system message
-                if self.COMMAND_INSTRUCTIONS not in original_content:
-                    system_content = original_content + "\n\n" + self.COMMAND_INSTRUCTIONS
-                    processed_messages.append({
-                        "role": "system",
-                        "content": system_content
-                    })
-                    # Skip the system message in the loop below
-                    messages_to_process = messages[1:]
-                else:
-                    # If instructions are already included, process normally
-                    messages_to_process = messages
-            else:
-                messages_to_process = messages
-            
-            # Process all remaining messages
-            for message in messages_to_process:
-                processed_messages.append({
-                    "role": message.role,
-                    "content": message.text()
-                })
-            
-            # Prepare request data
-            request_data = {
-                "model": model,
-                "messages": processed_messages,
-            }
-            
-            # Add stop sequences if provided
-            if stop:
-                request_data["stop"] = stop
+            # Build the request data
+            request_data = self._build_request(
+                messages=messages,
+                model=model,
+                stop=stop,
+                include_command_instructions=include_command_instructions
+            )
             
             # Send the request to the LLM
-            response = self._send_request(request_data)
+            # Default session_id to "unknown" if not provided
+            current_session_id = session_id if session_id is not None else "unknown"
+            response = self._send_request(request_data, session_id=current_session_id)
             
             # Process and return the response
-            return self._parse_response(response)
+            logger.debug(f"Received response: {response}")
+            return self._parse_response(response, session_id=current_session_id)
             
         except Exception as e:
             logger.error(f"Error processing messages: {e}", exc_info=True)
             raise
     
-    def _send_request(self, request_data: Dict[str, Any]) -> Any:
+    def _send_request(self, request_data: Dict[str, Any], session_id: str) -> Completion:
         """
         Send a request to the LLM and return the response.
         
@@ -170,14 +198,6 @@ class Client:
         # Get model name for logging
         model_name = request_data.get('model', 'unknown')
         
-        # Get current context for session_id
-        try:
-            ctx = context.get()
-            session_id = ctx.session_id
-        except context.ContextNotSetError:
-            # If context is not set, use None for session_id
-            session_id = None
-        
         # Log request start
         request_log_data = {
             "message": f"Sending request to model {model_name}",
@@ -191,22 +211,18 @@ class Client:
             }
         }
         
-        # Ensure structured logger is initialized
-        if self.structured_logger is None:
-            self._setup_logging()
-        
         # Log the request using the structured logger
-        self.structured_logger.record(request_log_data)
+        self._logger.record("requests", request_log_data)
         
         logger.debug(f"Sending request to LLM with {len(request_data.get('messages', []))} messages")
         logger.info(f"Sending request {request_id} with {len(request_data.get('messages', []))} messages to {model_name}")
         
         try:
             # Send the request to the LLM
-            response = self.client.chat.completions.create(**request_data)
+            response = self._client.chat.completions.create(**request_data)
             
             # Convert the response to a dictionary for logging
-            response_dict = self._response_to_dict(response)
+            response_dict = response.to_dict()
             
             # Log successful response
             response_log_data = {
@@ -222,12 +238,8 @@ class Client:
                 }
             }
             
-            # Ensure structured logger is initialized
-            if self.structured_logger is None:
-                self._setup_logging()
-                
             # Log the response using the structured logger
-            self.structured_logger.record(response_log_data)
+            self._logger.record("requests", response_log_data)
             
             return response
             
@@ -246,28 +258,74 @@ class Client:
                 }
             }
             
-            # Ensure structured logger is initialized
-            if self.structured_logger is None:
-                self._setup_logging()
-                
             # Log the error using the structured logger
-            self.structured_logger.record(error_log_data)
+            self._logger.record("requests", error_log_data)
             
             # Re-raise the exception
             raise
     
-    def _response_to_dict(self, response) -> Dict[str, Any]:
+    def _fetch_openrouter_metadata(self, completion_id: str) -> Dict[str, Any]:
         """
-        Convert an OpenAI response object to a dictionary for serialization.
+        Fetch metadata from OpenRouter API with retry logic.
+        
+        Args:
+            completion_id: The ID of the completion to fetch metadata for
+            
+        Returns:
+            Metadata dictionary
         """
-        return response.to_dict()
-    
-    def _parse_response(self, response) -> Message:
+        url = "https://openrouter.ai/api/v1/generation"
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        params = {"id": completion_id}
+        
+        retry_delay = 0.1 # seconds
+        max_retry_duration = 10  # seconds
+        start_time = time.time()
+
+        while True:
+            try:
+                api_response = requests.get(url, headers=headers, params=params)
+                api_response.raise_for_status()
+                response_data = api_response.json()
+                assert "data" in response_data, f"OpenRouter API response missing 'data' field"
+                logger.info(f"Took {time.time() - start_time} seconds to fetch OpenRouter metadata")
+                return response_data["data"]
+            except requests.HTTPError as e:
+                curr_duration = time.time() - start_time
+                # Only retry for 404 or 5xx errors
+                if curr_duration > max_retry_duration or not (e.response.status_code == 404 or e.response.status_code >= 500):
+                    raise
+                time.sleep(retry_delay)
+
+    def _add_openrouter_metadata(self, response, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Add OpenRouter metadata to the existing metadata dictionary.
+        
+        Args:
+            response: LLM response object
+            metadata: Existing metadata dictionary to update
+            
+        Returns:
+            Updated metadata dictionary
+        """
+        metadata = {
+            **metadata, 
+            **{
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens, 
+            },
+            **self._fetch_openrouter_metadata(response.id)
+        }
+        return metadata
+
+    def _parse_response(self, response, session_id: str) -> Message:
         """
         Parse LLM response to extract text and command calls.
         
         Args:
             response: LLM response object
+            session_id: Session identifier for logging
             
         Returns:
             Message: Processed response as a Message object
@@ -293,7 +351,17 @@ class Client:
         
         from collections import deque
         
-        message = Message(role="assistant")
+        # Basic metadata with usage stats
+        metadata = {}
+        
+        # Add additional metadata for OpenRouter completions
+        if self.api_url and "openrouter.ai" in self.api_url:
+            metadata = self._add_openrouter_metadata(response, metadata)
+        
+        message = Message(
+            role="assistant",
+            metadata=metadata
+        )
         blocks = []
         
         # Initialize variables for tracking the current block

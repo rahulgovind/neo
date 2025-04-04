@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CommandParameter:
     """Defines a parameter for a Command."""
-    
     name: str
     description: str
     required: bool = False
@@ -94,6 +93,8 @@ class Command(ABC):
     - process: Processes the parsed arguments and returns a result or raises an exception
     """
     
+
+    
     @abstractmethod
     def template(self) -> 'CommandTemplate':
         """
@@ -102,11 +103,12 @@ class Command(ABC):
         pass
     
     @abstractmethod
-    def process(self, args: Dict[str, Any], data: Optional[str] = None) -> str:
+    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> str:
         """
         Core implementation of the command's functionality.
         
         Args:
+            ctx: Application context
             args: Parameter name-value pairs
             data: Optional data string (similar to stdin)
             
@@ -143,7 +145,7 @@ class Command(ABC):
             cmd_template.requires_data
         )
     
-    def execute(self, parameters: Dict[str, Any], data: Optional[str] = None) -> CommandResult:
+    def execute(self, ctx, parameters: Dict[str, Any], data: Optional[str] = None) -> CommandResult:
         """
         Execute the command with the given parameters and data.
         
@@ -159,7 +161,7 @@ class Command(ABC):
         """
         try:
             # Process the command
-            result = self.process(parameters, data)
+            result = self.process(ctx, parameters, data)
             
             # Return success result
             return CommandResult(result=result, success=True)

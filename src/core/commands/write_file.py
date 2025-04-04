@@ -14,7 +14,7 @@ from src.core.exceptions import FatalError
 
 from src.core.command import Command, CommandTemplate, CommandParameter
 from src.core.messages import CommandResult
-from src.core import context
+from src.core.context import Context
 from src.utils.files import overwrite
 
 # Configure logging
@@ -31,6 +31,8 @@ class WriteFileCommand(Command):
     - Returns line addition/deletion statistics
     - Uses the workspace from the Context
     """
+    
+
     
     def template(self) -> CommandTemplate:
         """
@@ -64,11 +66,12 @@ class WriteFileCommand(Command):
             ]
         )
     
-    def process(self, args: Dict[str, Any], data: Optional[str] = None) -> str:
+    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> str:
         """
         Process the command with the parsed arguments and optional data.
         
         Args:
+            ctx: Application context
             args: Dictionary of parameter names to their values
             data: Optional data string containing the content to write to the file
             
@@ -76,10 +79,7 @@ class WriteFileCommand(Command):
             Status message with line addition/deletion counts
         """
         # Get the workspace from the context
-        ctx = context.get()
         workspace = ctx.workspace
-        if not workspace:
-            raise FatalError("No workspace set in context")
         
         path = args.get("path")
         if not path:

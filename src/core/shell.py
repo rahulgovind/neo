@@ -6,7 +6,7 @@ It acts as a central hub for executing commands by name.
 """
 
 import logging
-from typing import Dict, Any, List, Optional, Type
+from typing import Dict, Any, List, Optional, Type, TYPE_CHECKING
 
 from src.core.command import Command
 from src.core.messages import CommandResult, ParsedCommand
@@ -14,7 +14,9 @@ from src.core.commands.read_file import ReadFileCommand
 from src.core.commands.write_file import WriteFileCommand
 from src.core.commands.update_file import UpdateFileCommand
 from src.core.commands.search_file import SearchFileCommand
-from src.core.constants import COMMAND_END
+from src.core.constants import COMMAND_END, COMMAND_START, STDIN_SEPARATOR
+from src.core.context import Context
+from src.core.messages import CommandCall, CommandResult
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -25,8 +27,9 @@ class Shell:
     Shell for registering and executing commands.
     """
     
-    def __init__(self):
+    def __init__(self, ctx: Context):
         self._commands: Dict[str, Command] = {}
+        self._ctx = ctx
         
         # Register built-in commands
         self._register_builtin_commands()
@@ -121,7 +124,60 @@ class Shell:
             ValueError: If the command is not registered
         """
         command = self.get_command(command_name)
-        return command.execute(parameters, data)
+        return command.execute(self._ctx, parameters, data)
+        
+    def process_commands(self, commands: List[CommandCall]) -> List[CommandResult]:
+        """
+        Process a list of command calls and return the results.
+        
+        Args:
+            commands: List of command calls to process
+            
+        Returns:
+            List of CommandResult objects with the results of each command
+        """
+        assert len(commands) > 0, f"Expected at least one command call, got {len(commands)}"
+
+        # Create a list to collect all command results
+        result_blocks = []
+        
+        # Execute each command and collect the results
+        for cmd_call in commands:
+            try:
+                # Skip command calls without end markers
+                if not cmd_call.end_marker_set:
+                    error_result = CommandResult(
+                        result=None,
+                        success=False,
+                        error="Command call missing end marker"
+                    )
+                    result_blocks.append(error_result)
+                    continue
+                    
+                # Parse the command
+                command_text = cmd_call.content() + COMMAND_END
+                parsed_cmd = self.parse(command_text)
+                
+                # Execute the command
+                result = self.execute(
+                    parsed_cmd.name,
+                    parsed_cmd.parameters,
+                    parsed_cmd.data
+                )
+                
+                # Add the result to our collection
+                result_blocks.append(result)
+                
+            except Exception as e:
+                # Create an error result and add it to our collection
+                error_result = CommandResult(
+                    result=None,
+                    success=False,
+                    error=str(e)
+                )
+                result_blocks.append(error_result)
+        
+        return result_blocks
     
     def describe(self, command_name: str, extended: bool = False) -> str:
         """

@@ -105,9 +105,10 @@ class Message:
     Represents a message in the conversation with role and content blocks.
     """
     
-    def __init__(self, role: str, content: List[ContentBlock] = None):
+    def __init__(self, role: str, content: List[ContentBlock] = None, metadata: Optional[Dict[str, Any]] = None):
         self.role = role
         self.content = content or []
+        self.metadata = metadata or {}
     
     def add_content(self, content: ContentBlock) -> None:
         self.content.append(content)
@@ -122,6 +123,13 @@ class Message:
         """Get all text content from the message, joined with newlines."""
         text_parts = [block.text() for block in self.content]
         return "\n".join(text_parts)
+
+    def copy(self, metadata: Optional[Dict[str, Any]] = None) -> 'Message':
+        return Message(
+            self.role, 
+            self.content.copy(),
+            metadata if metadata else self.metadata.copy()
+        )
     
     def __str__(self) -> str:
         """
