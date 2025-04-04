@@ -475,5 +475,5 @@ class Client:
         for block in blocks:
             message.add_content(block)
         
-        logger.info(f"ASSISTANT: {message.text()}")
+        logger.info(f"ASSISTANT ({request_data.get('model', 'unknown')}): {message.text()}")
         return message

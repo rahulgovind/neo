@@ -15,6 +15,8 @@ from src.core.messages import Message, TextBlock
 from src.core.context import Context
 from src.utils.files import patch
 
+from textwrap import dedent
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -185,12 +187,23 @@ class UpdateFileCommand(Command):
             escaped_file_content = _escape_special_chars(file_content)
             
             # Build the initial message with file content and diff
-            initial_message = (
-                f"I need to update the file at '{file_path}' with this diff that couldn't be applied automatically:\n\n{diff_text}\n\n" + \
-                f"Here is the current content of the file:\n\n{escaped_file_content}\n\n" + \
-                f"Please make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content." + \
-                f"Once done, say <Successfully updated file> if you were successful, else say that you failed to update the file " + \
-                f"and explain why."
+            initial_message = dedent(
+                f"""
+                I need to update the file at '{file_path}' with this diff that couldn't be applied automatically:
+                {diff_text}
+
+                Applying the diff previously failed with the following error: 
+                {error_message}
+                
+                Here is the current content of the file:
+                {escaped_file_content}
+
+                Please make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content.
+
+                Do the following after you are done - 
+                - Say <Successfully updated file>, explain what changes you made, and also describe the original diff command failure
+                - If you weren't able to update the file, explain why.
+                """
             )
             
             # Create messages
