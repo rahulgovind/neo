@@ -47,16 +47,59 @@ The Model component provides an abstraction over the LLM client API:
 
 - Manages communication with the LLM using the OpenAI API format
 - Handles message preprocessing and response postprocessing
-- Extracts function calls from LLM responses
-- Formats function results for the LLM
+- Processes commands and their results through the LLM
+- Supports auto-execution of multiple commands in sequence
+- Extracts command calls from LLM responses
 
-#### Function (src/function.py)
+#### Client (src/core/client.py)
 
-The Function component defines operations that can be invoked by the LLM:
+The Client component handles direct communication with LLM providers:
 
-- `ReadFiles`: Reads file content from the workspace
-- `UpdateFile`: Creates or modifies files in the workspace
-- `FunctionRegistry`: Manages available functions and their descriptions
+- Abstracts away provider-specific details using the OpenAI API format
+- Manages API connections, request formatting, and response handling
+- Handles token counting and request logging
+- Processes special command markers in responses
+- Supports robust error handling and recovery
+
+#### Shell (src/core/shell.py)
+
+The Shell component serves as the central hub for command execution:
+
+- Registers and manages available commands
+- Parses command input strings into structured commands
+- Executes commands with appropriate arguments
+- Processes command calls from the LLM
+- Returns command results in a standardized format
+
+#### Command (src/core/command.py)
+
+The Command component defines the interface for executable commands:
+
+- Provides an abstract base class that all commands implement
+- Supports parameter parsing for positional and flag arguments
+- Handles documentation generation for command usage
+- Manages error handling and command result formatting
+- Enables a CLI-like command execution pattern
+
+#### Context (src/core/context.py)
+
+The Context component manages application state and dependencies:
+
+- Provides access to the workspace, model, shell, and agent
+- Uses a builder pattern for easy initialization
+- Manages session identification and tracking
+- Serves as the central point for component references
+- Enforces dependency availability through property getters
+
+#### Messages (src/core/messages.py)
+
+The Messages component defines data structures for communication:
+
+- Implements various content block types (TextBlock, CommandCall, CommandResult)
+- Handles special character escaping and unescaping
+- Provides consistent formatting for commands and their results
+- Maintains structured representation of conversation history
+- Supports extraction of command calls from messages
 
 #### Agent (src/agent.py)
 
@@ -203,3 +246,35 @@ To add new features to the chat interface:
 ## Conclusion
 
 Neo's architecture provides a solid foundation for an LLM-powered code assistant with a clear separation of concerns and well-defined interfaces between components. The design prioritizes flexibility, robustness, and extensibility while maintaining a straightforward user experience.
+
+## Command Implementation
+
+Neo implements a set of powerful file operation commands through a consistent Command interface:
+
+### Command Structure
+
+Each command follows a consistent pattern defined by the Command abstract base class:
+
+1. **Template Definition**: Commands define their parameters, documentation, and examples through a CommandTemplate
+2. **Parameter Types**: Support for both positional arguments and flag-based options 
+3. **Process Implementation**: Core logic that executes the command and returns results
+4. **Error Handling**: Standardized error reporting with appropriate context
+
+### Built-in Commands
+
+The following built-in commands are automatically registered in the Shell:
+
+1. **read_file**: Reads and displays file contents with optional line numbering
+2. **write_file**: Creates or overwrites files with provided content
+3. **update_file**: Modifies existing files using a diff structure
+4. **grep**: Searches for patterns in files with filtering capabilities
+5. **find**: Locates files and directories matching specific criteria
+
+### Command Registration
+
+New commands can be added to the system by:
+1. Creating a new class that inherits from the Command base class
+2. Implementing the required template() and process() methods
+3. Registering the command with the Shell instance
+
+The command system is designed to be extensible, allowing developers to add new functionality without modifying the core framework.
