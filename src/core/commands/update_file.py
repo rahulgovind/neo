@@ -99,7 +99,7 @@ class UpdateFileCommand(Command):
                 + // Add error handling
                 + catch(err) {
                 +   console.error(err);
-                + }■
+                + }
                 ❌Error: No such file or directory■
                 
 
@@ -107,22 +107,23 @@ class UpdateFileCommand(Command):
         )
     
     def _get_system_prompt(self) -> str:
-        """Get system prompt for the model with updated instructions"""
+        """Get system prompt for the model with improved error reporting instructions"""
         return textwrap.dedent("""
             You are a specialized file updating assistant. Your task is to modify a file based on 
             a diff structure that could not be applied automatically.
             
             1. You have been provided with the current content of a file and a diff that failed to apply.
-            2. First, analyze the original error message to identify what went wrong with the diff.
-            3. If possible, identify the specific part of the file related to the error and provide that snippet.
+            2. First, you MUST include the exact original error message verbatim in your response.
+            3. Then, identify the relevant portions of the file that are related to the error and include those exact lines.
             4. Carefully analyze the file content and understand what changes are requested by the diff.
             5. Make only the changes that align with the intent of the diff, preserving everything else.
             6. Use the write_file command to save the updated content.
             
             In your response:
-            - ALWAYS start by showing the original error that occurred during the diff application.
-            - DO NOT try to explain or interpret why the error occurred until you've shown the error.
-            - If applicable, show a small snippet of the file where the error likely occurred to help the user understand the context.
+            - ALWAYS start by quoting the original error that occurred during the diff application, exactly as provided.
+            - VERBATIM include the relevant file sections. DO NOT paraphrase or modify these sections when quoting them.
+            - Format the original file sections with line numbers to help the user locate the issue.
+            - Only after showing the error and relevant file sections, provide your explanation and solution.
             - Be precise and maintain the original formatting and style of the file.
             - Only make the changes aligned with the intent of the diff.
             - If you cannot determine what changes are needed, explain why.
@@ -189,24 +190,14 @@ class UpdateFileCommand(Command):
             # Escape the file content to avoid issues with special characters
             escaped_file_content = _escape_special_chars(file_content)
             
-            # Build the initial message with file content and diff
-            initial_message = dedent(
-                f"""
-                I need to update the file at '{file_path}' with this diff that couldn't be applied automatically:
-                {diff_text}
-
-                Applying the diff previously failed with the following error: 
-                {error_message}
-                
-                Here is the current content of the file:
-                {escaped_file_content}
-
-                Please make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content.
-
-                Do the following after you are done - 
-                - Say <Successfully updated file>, explain what changes you made, and also describe the original diff command failure
-                - If you weren't able to update the file, explain why.
-                """
+            # Build the initial message with file content, diff, and original error message
+            initial_message = (
+                f"I need to update the file at '{file_path}' with this diff that couldn't be applied automatically:\n\n{diff_text}\n\n" + \
+                f"The automatic diff application failed with this error (which you MUST include verbatim in your response):\n\n```\n{error_message}\n```\n\n" + \
+                f"Here is the current content of the file:\n\n{escaped_file_content}\n\n" + \
+                f"First, quote the exact original error message as shown above. Then identify and show the exact relevant portions of the file related to this error, " + \
+                f"including their line numbers. After that, make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content. " + \
+                f"Once done, say <Successfully updated file> if you were successful, else say that you failed to update the file."
             )
             
             # Create messages
