@@ -29,6 +29,7 @@ class CommandParameter:
     required: bool = False
     default: Any = None
     is_positional: bool = False
+    hidden: bool = False
     is_flag: bool = False
     short_flag: Optional[str] = None  # Single character for short flag (e.g., 'f' for -f)
     long_flag: Optional[str] = None   # Word for long flag (e.g., 'file' for --file)

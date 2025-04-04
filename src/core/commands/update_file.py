@@ -60,23 +60,47 @@ class UpdateFileCommand(Command):
                     description="Path to the file to update",
                     required=True,
                     is_positional=True
+                ),
+                CommandParameter(
+                    name="disable_model_fallback",
+                    description="Disable model fallback if diff cannot be applied",
+                    required=False,
+                    is_positional=False,
+                    default=False,
+                    long_flag="disable-model-fallback",
+                    is_flag=True,
+                    hidden=True
                 )
             ],
             examples=textwrap.dedent("""
-                ▶update_file path/to/file.py｜-3 def old_function():
-+3 def new_function():
- 4   # rest of the function■
+                # Using the new chunk-based diff format:
+                ▶update_file path/to/file.py｜@3 Update function name
+                - def old_function():
+                + def new_function():
+                  # rest of the function■
                 ✅File updated successfully■
                 
-                ▶update_file config.json｜-5 "port": 8080,
-+5 "port": 9000,■
+                # Using the new chunk-based diff format for port update:
+                ▶update_file config.json｜@5 Update port
+                - "port": 8080,
+                + "port": 9000,■
                 ✅File updated successfully■
                 
-                ▶update_file src/app.js｜-8 function login() {
--9   // Old implementation
-+8 function login() {
-+9   // New implementation■
+                # Multiple chunks in one diff:
+                ▶update_file src/app.js｜@8 Update login function
+                - function login() {
+                - // Old implementation
+                + function login() {
+                + // New implementation
+                @20 Add error handling
+                  }
+                + // Add error handling
+                + catch(err) {
+                +   console.error(err);
+                + }■
                 ❌Error: No such file or directory■
+                
+
             """).strip()
         )
     
@@ -140,6 +164,9 @@ class UpdateFileCommand(Command):
                 return f"❌{write_result.error}"
                 
         except FatalError as e:
+            if bool(args.get("disable_model_fallback")):
+                logger.warning(f"Disabling model fallback: {str(e)}")
+                return f"❌{str(e)}"
             # If patch failed with a FatalError, fall back to using the model
             error_message = str(e)
             logger.warning(f"Diff application failed: {error_message}. Falling back to model.")
@@ -179,4 +206,4 @@ class UpdateFileCommand(Command):
                 commands=["write_file"],
                 auto_execute_commands=True
             ).text()
-    
+        

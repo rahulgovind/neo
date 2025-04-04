@@ -149,18 +149,14 @@ def read(path: str, include_line_numbers: bool = False) -> str:
             
             if include_line_numbers:
                 # Split into lines and add line numbers
-                lines = content.splitlines(True)  # keepends=True to preserve newlines
+                lines = content.split("\n")  # keepends=True to preserve newlines
                 numbered_lines = [f"{i+1} {line}" for i, line in enumerate(lines)]
-                result = "".join(numbered_lines)
-                
-                # Ensure we preserve the final newline if it exists in the original file
-                if content and content[-1] == '\n' and (not result or result[-1] != '\n'):
-                    result += '\n'
+                result = "\n".join(numbered_lines)
                     
                 logger.info(f"Successfully read file: {path} ({len(lines)} lines)")
                 return result
             else:
-                logger.info(f"Successfully read file: {path} ({len(content.splitlines())} lines)")
+                logger.info(f"Successfully read file: {path} ({len(content.split("\n"))} lines)")
                 return content
                 
     except UnicodeDecodeError:
@@ -252,17 +248,17 @@ def patch(path: str, diff_text: str) -> str:
     """
     Apply a diff to update file content.
     
-    The diff format is:
-    - Lines starting with '-' indicate lines to delete from the original content
-    - Lines starting with '+' indicate lines to add
-    - Lines starting with ' ' indicate unmodified lines that should match for validation
-    
-    The line number follows the prefix and precedes the line content.
-    For example: '-3 existing line' means delete line 3.
+    The diff format uses a chunk-based structure:
+    - Lines starting with '@' indicate the start of a chunk with a line number
+    - Format: @<line_number> [optional description]
+    - Within each chunk:
+      - Lines with '- ' indicate lines to delete
+      - Lines with '+ ' indicate lines to add
+      - Lines with '  ' indicate context (unchanged) lines
     
     Args:
-        path: Path to the file to update
-        diff_text: Diff text in the specified format
+        path: File to update
+        diff_text: Diff to apply
         
     Returns:
         Updated content after applying the diff
@@ -270,89 +266,97 @@ def patch(path: str, diff_text: str) -> str:
     Raises:
         FatalError: If the diff cannot be applied for any reason
     """
-    # Read the original file content
     try:
+        # Read the original file content
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
     except FileNotFoundError:
-        raise FatalError(f"File not found: {path}")
-    except PermissionError:
-        raise FatalError(f"Permission denied reading file: {path}")
+        # The file doesn't exist, so the patch can't be applied
+        raise FatalError(f"File {path} not found")
     except Exception as e:
         raise FatalError(f"Error reading file {path}: {str(e)}")
     
-    # Check if the original content has a trailing newline
-    has_trailing_newline = content.endswith('\n')
-    
     # Split into lines for processing
     original_lines = content.split("\n")
-    if has_trailing_newline and original_lines and original_lines[-1] == "":
-        # Remove the empty string at the end that comes from splitting a string with trailing newline
-        original_lines.pop()
     
-    # Parse the diff
-    # Allow for an optional space between the operator and the line number
-    # Also allow for empty line content (just add/delete a blank line)
-    diff_pattern = re.compile(r'^([\-+]| |)\s*(\d+)( (.*))?$')
-    diff_lines = diff_text.split("\n")
-    # Remove empty lines in the diff
-    if diff_lines and diff_lines[-1] == "":
-        diff_lines.pop()
+    # Remove empty lines from the diff
+    diff_lines = [
+        line for line in diff_text.split("\n")
+        if line.strip() != ""
+    ]
     
     # Process the diff lines
     operations = []
-    for line in diff_lines:
-        # Skip completely empty lines
-        if not line:
-            continue
-            
-        match = diff_pattern.match(line)
-        if not match:
-            raise FatalError(f"Invalid diff line format: {line}")
-            
-        op, line_num_str, content_group, line_content = match.groups()
-        # Convert empty string to space for unchanged lines
-        if op == "":
-            op = " "
-            
-        # Handle empty line content
-        if line_content is None:
-            line_content = ""
-            
-        try:
-            line_num = int(line_num_str)
-            if line_num < 1:
-                raise FatalError(f"Invalid line number {line_num} (must be >= 1)")
-            # Convert to 0-based indexing
-            line_num -= 1
-            
-            operations.append((op, line_num, line_content))
-        except ValueError:
-            raise FatalError(f"Invalid line number in diff: {line_num_str}")
     
-    # Sort operations by line number
-    # For the same line number, sort by operation type: delete first, then unchanged, then add
+    # Parse the chunk-based format
+    chunk_pattern = re.compile(r'^@(\d+)\s*(.*)$')
+    current_line_num = 0
+    
+    i = 0
+    while i < len(diff_lines):
+        line = diff_lines[i]
+        
+        # Check if this is a chunk header
+        chunk_match = chunk_pattern.match(line)
+        if chunk_match:
+            # Get the starting line number for this chunk (1-indexed in the diff)
+            current_line_num = int(chunk_match.group(1)) - 1  # Convert to 0-indexed
+            i += 1  # Move to the next line
+            
+            # Process lines in this chunk
+            while i < len(diff_lines) and not diff_lines[i].startswith('@'):
+                chunk_line = diff_lines[i]
+                
+                if chunk_line.startswith('- '):
+                    # Delete line
+                    if current_line_num >= len(original_lines):
+                        raise FatalError(f"Line {current_line_num + 1} does not exist in the original content")
+                    # Verify that the line to delete matches what's in the diff
+                    line_content = chunk_line[2:]
+                    if original_lines[current_line_num] != line_content:
+                        raise FatalError(
+                            f"Line mismatch at line {current_line_num + 1}:\n" +
+                            f"Expected: '{line_content}'\n" +
+                            f"Actual: '{original_lines[current_line_num]}'"
+                        )
+                    operations.append((PatchOpType.DELETE.value, current_line_num, original_lines[current_line_num]))
+                    current_line_num += 1
+                elif chunk_line.startswith('+ '):
+                    # Add line
+                    operations.append((PatchOpType.ADD.value, current_line_num, chunk_line[2:]))
+                elif chunk_line.startswith('  '):
+                    # Unchanged line
+                    if current_line_num >= len(original_lines):
+                        raise FatalError(f"Line {current_line_num + 1} does not exist in the original content")
+                    # Verify that the unchanged line matches what's in the diff
+                    line_content = chunk_line[2:]
+                    if original_lines[current_line_num] != line_content:
+                        raise FatalError(
+                            f"Line mismatch at line {current_line_num + 1}:\n" +
+                            f"Expected: '{line_content}'\n" +
+                            f"Actual: '{original_lines[current_line_num]}'"
+                        )
+                    operations.append((PatchOpType.UNCHANGED.value, current_line_num, original_lines[current_line_num]))
+                    current_line_num += 1
+                else:
+                    # Invalid line in chunk
+                    raise FatalError(f"Invalid line format in chunk: {chunk_line}")
+                
+                i += 1
+        else:
+            # If it's not a chunk header, raise an error
+            raise FatalError(f"Invalid diff format: Line must start with @ to indicate a chunk: {line}")
+    
+    # Sort operations by line number, with deletions before additions
+    # This is important to handle overlapping line changes correctly
     def op_sort_key(operation):
         op, line_num, _ = operation
-        op_priority = {
-            PatchOpType.DELETE.value: 0,  # Process deletions first
-            PatchOpType.UNCHANGED.value: 1,  # Then unchanged lines
-            PatchOpType.ADD.value: 2,  # Then additions
-        }[op]
-        return (line_num, op_priority)
+        # Sort by line number first
+        # Then by operation type: deletions before additions
+        return (line_num, 0 if op == PatchOpType.DELETE.value else 
+                       1 if op == PatchOpType.UNCHANGED.value else 2)
         
     operations.sort(key=op_sort_key)
-    
-    # Verify operations are valid for deletion and unmodified lines
-    for op, line_num, line_content in operations:
-        # Verify that all unmodified lines match and deleted lines exist
-        if op in [PatchOpType.DELETE.value, PatchOpType.UNCHANGED.value]:
-            if original_lines[line_num] != line_content:
-                raise FatalError(
-                    f"Line mismatch at line {line_num + 1}:\n" +
-                    f"Expected: '{line_content}'\n" +
-                    f"Actual: '{original_lines[line_num]}'"
-                )
     
     # Process changes by iterating over operations
     result = []
@@ -392,13 +396,8 @@ def patch(path: str, diff_text: str) -> str:
     # Convert the result to a string
     result_str = '\n'.join(result)
     
-    # Special case for empty file - test_patch_empty_file
-    # When patching an empty file, don't add a trailing newline
-    if not content and result_str:
-        return result_str.rstrip('\n')
-        
-    # Normal case - add trailing newline only if the original had one
-    if content and has_trailing_newline and result_str:
+    # Add trailing newline if the original had one or if there are lines in the result
+    if result_str and not result_str.endswith('\n'):
         result_str += '\n'
     
     return result_str

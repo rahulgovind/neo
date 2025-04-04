@@ -126,6 +126,30 @@ class Shell:
         """
         command = self.get_command(command_name)
         return command.execute(self._ctx, parameters, data)
+
+    def parse_and_execute(self, command_input: str) -> CommandResult:
+        """
+        Parse and execute a command from a command input string.
+        
+        Args:
+            command_input: The command input string to parse and execute
+            
+        Returns:
+            CommandResult object with the result of the command execution
+        """
+        logger.debug(f"Command input: {command_input}")
+        parsed_cmd = self.parse(command_input)
+        
+        logger.debug(f"Executing command with parameters: {parsed_cmd.parameters}")
+        result = self.execute(
+            parsed_cmd.name,
+            parsed_cmd.parameters,
+            parsed_cmd.data
+        )
+        logger.debug(f"Command result success: {result.success}")
+        logger.debug(f"Command result: {result.result}")
+        
+        return result
         
     def process_commands(self, commands: List[CommandCall]) -> List[CommandResult]:
         """
