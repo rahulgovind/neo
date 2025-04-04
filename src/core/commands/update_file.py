@@ -105,23 +105,25 @@ class UpdateFileCommand(Command):
         )
     
     def _get_system_prompt(self) -> str:
-        """Get system prompt for the model"""
+        """Get system prompt for the model with updated instructions"""
         return textwrap.dedent("""
             You are a specialized file updating assistant. Your task is to modify a file based on 
             a diff structure that could not be applied automatically.
             
             1. You have been provided with the current content of a file and a diff that failed to apply.
-            2. Carefully analyze the file content and understand what changes are requested by the diff.
-            3. Make only the changes that align with the intent of the diff, preserving everything else.
-            4. Use the write_file command to save the updated content.
-            5. Be precise and maintain the original formatting and style of the file.
-            6. If the diff cannot be reasonably applied, explain the issue.
+            2. First, analyze the original error message to identify what went wrong with the diff.
+            3. If possible, identify the specific part of the file related to the error and provide that snippet.
+            4. Carefully analyze the file content and understand what changes are requested by the diff.
+            5. Make only the changes that align with the intent of the diff, preserving everything else.
+            6. Use the write_file command to save the updated content.
             
-            Remember to:
-            - Preserve indentation, spacing, and code style
-            - Only make the changes aligned with the intent of the diff
-            - Use the write_file command with the same path to save the updated file
-            - If you cannot determine what changes are needed, explain why
+            In your response:
+            - ALWAYS start by showing the original error that occurred during the diff application.
+            - DO NOT try to explain or interpret why the error occurred until you've shown the error.
+            - If applicable, show a small snippet of the file where the error likely occurred to help the user understand the context.
+            - Be precise and maintain the original formatting and style of the file.
+            - Only make the changes aligned with the intent of the diff.
+            - If you cannot determine what changes are needed, explain why.
         """).strip()
     
     def process(self, ctx: Context, args: Dict[str, Any], data: Optional[str] = None) -> str:
@@ -159,7 +161,7 @@ class UpdateFileCommand(Command):
             
             if write_result.success:
                 logger.info(f"Successfully applied diff to {file_path}")
-                return f"✅File updated successfully"
+                return "✅File updated successfully"
             else:
                 return f"❌{write_result.error}"
                 
@@ -167,30 +169,32 @@ class UpdateFileCommand(Command):
             if bool(args.get("disable_model_fallback")):
                 logger.warning(f"Disabling model fallback: {str(e)}")
                 return f"❌{str(e)}"
+                
             # If patch failed with a FatalError, fall back to using the model
             error_message = str(e)
             logger.warning(f"Diff application failed: {error_message}. Falling back to model.")
-            
+
             # Get the original content of the file with line numbers
             read_result = shell.execute("read_file", parameters={"path": file_path, "include_line_numbers": True})
             if not read_result.success:
                 return f"❌{read_result.error}"
-            
+
             file_content = read_result.result
-            
+
             # Import the escaping function from messages.py
             from src.core.messages import _escape_special_chars
-            
+
             # Escape the file content to avoid issues with special characters
             escaped_file_content = _escape_special_chars(file_content)
-            
-            # Build the initial message with file content and diff
+
+            # Build the initial message with file content, diff, and original error message
             initial_message = (
                 f"I need to update the file at '{file_path}' with this diff that couldn't be applied automatically:\n\n{diff_text}\n\n" + \
+                f"The automatic diff application failed with this error:\n\n```\n{error_message}\n```\n\n" + \
                 f"Here is the current content of the file:\n\n{escaped_file_content}\n\n" + \
-                f"Please make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content." + \
-                f"Once done, say <Successfully updated file> if you were successful, else say that you failed to update the file " + \
-                f"and explain why."
+                f"First, please acknowledge the original error and identify any relevant portions of the file related to it. " + \
+                f"Then make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content. " + \
+                f"Once done, say <Successfully updated file> if you were successful, else say that you failed to update the file."
             )
             
             # Create messages
@@ -207,3 +211,4 @@ class UpdateFileCommand(Command):
                 auto_execute_commands=True
             ).text()
         
+
