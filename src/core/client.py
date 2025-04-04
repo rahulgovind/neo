@@ -34,25 +34,25 @@ class Client:
     COMMAND_INSTRUCTIONS = """
     When executing commands, follow this exact format:
     
-    - The command starts with "▶"
-    - "▶" is followed by the command name and then a space.
+    - The command starts with "\u25b6"
+    - "\u25b6" is followed by the command name and then a space.
     - Named arguments (-f, --foo) should come before positional arguments
-    - If STDIN is required it can be specified with a pipe (｜) after the parameters. STDIN is optional.
+    - If STDIN is required it can be specified with a pipe (\uff5c) after the parameters. STDIN is optional.
     
     Examples:
     ```
-    ▶command_name -f v2 --foo v3 v1｜Do something■
-    ✅File updated successfully■
+    \u25b6command_name -f v2 --foo v3 v1\uff5cDo something\u25a0
+    \u2705File updated successfully\u25a0
     
-    ▶command_name -f v2 --foo v3 v1｜Erroneous data■
-    ❌Error■
+    \u25b6command_name -f v2 --foo v3 v1\uff5cErroneous data\u25a0
+    \u274cError\u25a0
     ```
     
     VERY VERY IMPORTANT:
-    - ALWAYS add the ▶ at the start of the command call
-    - ALWAYS add the ■ at the end of the command call
+    - ALWAYS add the \u25b6 at the start of the command call
+    - ALWAYS add the \u25a0 at the end of the command call
     - DO NOT make multiple command calls in parallel. Wait for the results to complete first.
-    - Results MUST start with "✅" if executed successfully or "❌" if executed with an error.
+    - Results MUST start with "\u2705" if executed successfully or "\u274c" if executed with an error.
     """
     
     def __init__(self):
@@ -64,6 +64,7 @@ class Client:
         """
         self.api_url = os.environ.get("API_URL")
         self.api_key = os.environ.get("API_KEY")
+        self.default_model = os.environ.get("MODEL_ID", "anthropic/claude-3.7-sonnet")
 
         if not self.api_key:
             logger.error("API_KEY environment variable is not set")
@@ -146,7 +147,7 @@ class Client:
             
         return request_data
     
-    def process(self, messages: List[Message], model: str = "anthropic/claude-3.7-sonnet", 
+    def process(self, messages: List[Message], model: Optional[str] = None, 
            stop: List[str] = None, include_command_instructions: bool = True,
            session_id: Optional[str] = None) -> Message:
         """
@@ -154,7 +155,7 @@ class Client:
         
         Args:
             messages: List of messages representing the conversation history
-            model: The model identifier to use for the request
+            model: Optional model identifier to override the default model
             stop: Optional list of stop sequences
             include_command_instructions: Whether to include command instructions
             session_id: Optional session identifier for tracking
@@ -166,10 +167,13 @@ class Client:
             Exception: Any error during processing is logged and re-raised
         """
         try:
+            # Use the provided model or fall back to default model
+            model_id = model if model is not None else self.default_model
+            
             # Build the request data
             request_data = self._build_request(
                 messages=messages,
-                model=model,
+                model=model_id,
                 stop=stop,
                 include_command_instructions=include_command_instructions
             )

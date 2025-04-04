@@ -79,7 +79,7 @@ class ContextBuilder:
     def __init__(self):
         self._session_id = None
         self._workspace = None
-        self._model_name = "anthropic/claude-3.7-sonnet"
+        self._model_name = None
         self._context = None
     
     def _copy(self) -> 'ContextBuilder':

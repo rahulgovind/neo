@@ -27,14 +27,13 @@ class Model:
     Abstraction layer for processing messages through an LLM.
     Handles command parsing and message processing.
     """
-    
-    def __init__(self, ctx: Context, model_id: str = "anthropic/claude-3.5-sonnet"):
+    def __init__(self, ctx: Context, model_id: Optional[str] = None):
         """
         Initialize the Model for LLM interactions.
         
         Args:
             ctx: Context object
-            model_id: The model identifier to use for requests
+            model_id: Optional model identifier to override the default model
         """
         self.ctx = ctx
         self.model_id = model_id

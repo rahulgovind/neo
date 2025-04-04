@@ -70,7 +70,7 @@ class WebChat:
         """
         self.workspace = workspace
         self.db = Database(db_path)
-        self._model_name = "anthropic/claude-3.7-sonnet"
+        self._model_name = None
         self._agent_cache: Dict[str, Agent] = {}
         
     def _get_agent(self, session_id: str) -> Agent:
