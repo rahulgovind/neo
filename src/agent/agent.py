@@ -89,7 +89,7 @@ class Agent:
         assert self.state.messages[-1].role == "assistant", f"Expected last message to be from assistant, got {self.state.messages[-1].role}"
 
         # Only trigger if state has more than 15 messages
-        if len(self.state.messages) < 15:
+        if len(self.state.messages) < 100:
             return
 
         # Only keep the last 6 messages on pruning

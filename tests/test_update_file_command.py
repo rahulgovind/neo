@@ -334,3 +334,63 @@ Line 5: Error and success: {ERROR_PREFIX} {SUCCESS_PREFIX}
         self.assertIn(STDIN_SEPARATOR, updated_content, "Stdin separator character should be preserved")
         self.assertIn(ERROR_PREFIX, updated_content, "Error prefix character should be preserved")
         self.assertIn(SUCCESS_PREFIX, updated_content, "Success prefix character should be preserved")
+        
+    def test_bulletpoint_patch_via_model(self):
+        """Test update with content containing bullet points that would fail in direct patch."""
+        # Create a test file with architecture-style bullet points
+        test_file_path = os.path.join(self.temp_dir, "architecture_doc.md")
+        original_content = """#### Agent (src/agent.py)
+
+The Agent builds on top of the Model and Functions:
+
+- Maintains conversation state across messages
+- Manages the context window with relevant information
+- Orchestrates function execution based on LLM requests
+- Handles the conversation flow and multi-turn interactions
+"""
+        
+        with open(test_file_path, "w") as f:
+            f.write(original_content)
+        
+        # Create a diff with bullet points - this would fail direct patching
+        # because it has both space and +/- operators for the same line numbers
+        diff_text = """ 1 #### Agent (src/agent.py)
++ 1 #### Agent (src/agent/agent.py)
+ 2 
+- 3 The Agent builds on top of the Model and Functions:
++ 3 The Agent builds on top of the Model and Shell:
+ 4 
+ 5 - Maintains conversation state across messages
+- 6 - Manages the context window with relevant information
+- 7 - Orchestrates function execution based on LLM requests
+- 8 - Handles the conversation flow and multi-turn interactions
++ 6 - Implements hierarchical memory management for enhanced context retention
++ 7 - Manages the context window through state pruning mechanisms
++ 8 - Orchestrates command execution based on LLM requests
++ 9 - Handles the conversation flow and multi-turn interactions
++ 10 - Uses a dedicated AgentState data structure to track conversation history"""
+        
+        # Create and execute the command - should fall back to the model
+        command_input = f"update_file {test_file_path}{STDIN_SEPARATOR}{diff_text}{COMMAND_END}"
+        result = self.execute_command(command_input)
+        
+        # Verify the command executed successfully via model fallback
+        self.assertTrue(result.success, "Command should execute successfully via model fallback")
+        
+        # Read the updated file content
+        with open(test_file_path, "r") as f:
+            updated_content = f.read()
+        
+        # Verify that the content was updated as expected
+        # These key phrases should be in the updated content
+        expected_phrases = [
+            "Agent (src/agent/agent.py)",
+            "builds on top of the Model and Shell",
+            "hierarchical memory management",
+            "state pruning mechanisms",
+            "command execution",
+            "AgentState data structure"
+        ]
+        
+        for phrase in expected_phrases:
+            self.assertIn(phrase, updated_content, f"Updated content should contain '{phrase}'")

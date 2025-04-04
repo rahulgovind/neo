@@ -180,7 +180,7 @@ class Client:
             response = self._send_request(request_data, session_id=current_session_id)
             
             # Process and return the response
-            logger.debug(f"Received response: {response}")
+            logger.debug(f"Received response:\n{response}")
             return self._parse_response(response, session_id, request_data)
             
         except Exception as e:
@@ -471,4 +471,5 @@ class Client:
         for block in blocks:
             message.add_content(block)
         
+        logger.info(f"ASSISTANT: {message.text()}")
         return message

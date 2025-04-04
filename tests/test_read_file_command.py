@@ -47,15 +47,15 @@ class TestReadFileCommand(FileCommandTestBase):
         self.assertIn("def main():", result.result)
         self.assertIn("print(\"Hello, world!\")", result.result)
         
-        # Verify line numbers are NOT included by default
+        # Verify line numbers ARE included by default
         first_line = result.result.split('\n')[0].strip()
-        self.assertEqual(first_line, "#!/usr/bin/env python3")
+        self.assertRegex(first_line, r'^\d+\s+#!/usr/bin/env python3')
     
-    def test_with_line_numbers(self):
-        """Test reading with line numbers."""
-        # Use the execute_command helper to run the command with the --include-line-numbers flag
-        command_input = f"read_file {self.test_py_file} --include-line-numbers{COMMAND_END}"
-        logger.debug(f"Command input with line numbers: {command_input}")
+    def test_without_line_numbers(self):
+        """Test reading without line numbers."""
+        # Use the execute_command helper to run the command with the --no-line-numbers flag
+        command_input = f"read_file {self.test_py_file} --no-line-numbers{COMMAND_END}"
+        logger.debug(f"Command input without line numbers: {command_input}")
         
         result = self.execute_command(command_input)
         
@@ -66,8 +66,9 @@ class TestReadFileCommand(FileCommandTestBase):
         self.assertIn("#!/usr/bin/env python3", result.result)
         self.assertIn("def main():", result.result)
         
-        # Verify line numbers are included
-        self.assertRegex(result.result, r'^\d+\s+#!/usr/bin/env python3')
+        # Verify line numbers are NOT included
+        first_line = result.result.split('\n')[0].strip()
+        self.assertEqual(first_line, "#!/usr/bin/env python3")
     
     def test_read_text_file(self):
         """Test reading a text file."""

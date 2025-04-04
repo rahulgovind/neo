@@ -49,7 +49,10 @@ class UpdateFileCommand(Command):
                 The line number follows the prefix and precedes the line content.
                 For example: '-3 existing line' means delete line 3.
                 
-                If a consecutive chunk of lines is being updated, the deletions must precede the additions.
+                Important rules:
+                - A space prefix means that line is not being modified and must match exactly for validation
+                - It is invalid to have the same line number with both a space prefix and a '+' or '-' prefix
+                - If a consecutive chunk of lines is being updated, the deletions must precede the additions.
             """).strip(),
             parameters=[
                 CommandParameter(
@@ -156,34 +159,24 @@ class UpdateFileCommand(Command):
             
             # Build the initial message with file content and diff
             initial_message = (
-                f"I need to update the file at '{file_path}' with this diff that couldn't be applied automatically:\n\n{diff_text}\n\n"
-                f"Here is the current content of the file:\n\n{escaped_file_content}\n\n"
-                f"Please make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content."
+                f"I need to update the file at '{file_path}' with this diff that couldn't be applied automatically:\n\n{diff_text}\n\n" + \
+                f"Here is the current content of the file:\n\n{escaped_file_content}\n\n" + \
+                f"Please make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content." + \
+                f"Once done, say <Successfully updated file> if you were successful, else say that you failed to update the file " + \
+                f"and explain why."
             )
             
             # Create messages
             user_msg = Message(role="user")
-            user_msg.add_content(TextBlock(initial_message))
+            user_msg.add_content(TextBlock(_escape_special_chars(initial_message)))
             messages = [user_msg]
             
             # Process the message with the model - only allowing write_file command
             system_prompt = self._get_system_prompt()
-            try:
-                response = model.process(
-                    system=system_prompt,
-                    messages=messages,
-                    commands=["write_file"],
-                    auto_execute_commands=True
-                )
-                
-                # Check if write_file command was executed successfully in the response
-                if hasattr(response, 'text') and response.text and "File written successfully" in response.text:
-                    logger.info(f"File update process completed using model for {file_path}")
-                    return f"✅File updated successfully (via Model)"
-            except Exception as e:
-                logger.error(f"Error in model processing for file update: {str(e)}")
-                return f"❌Error during model-based update: {str(e)}"
-            
-            logger.info(f"File update process completed for {file_path} but may not have been successful")
-            # If we got here without finding a successful write, return the model response
-            return response.text
+            return model.process(
+                system=system_prompt,
+                messages=messages,
+                commands=["write_file"],
+                auto_execute_commands=True
+            ).text()
+    

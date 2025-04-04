@@ -197,3 +197,27 @@ def test_patch_empty_file():
     finally:
         # Clean up
         os.unlink(tmp_path)
+
+def test_patch_with_empty_line_content():
+    """Test patching with empty line content in the diff"""
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        # Write test content with text and blank lines
+        content = "Header\n\nThe Agent builds on top of the Model:\n\n- Feature 1\n- Feature 2\n"
+        tmp.write(content.encode('utf-8'))
+        tmp_path = tmp.name
+    
+    try:
+        # Create a diff that has empty line content (line 2 is blank)
+        # The +101 notation with nothing after it represents adding an empty line
+        diff_text = "-2 \n+2\n-3 The Agent builds on top of the Model:\n+3 The Agent builds on top of the Shell:\n"
+        
+        # Apply the patch
+        result = patch(tmp_path, diff_text)
+        
+        # Expected result - should correctly handle both empty lines
+        expected = "Header\n\nThe Agent builds on top of the Shell:\n\n- Feature 1\n- Feature 2\n"
+        
+        assert result == expected
+    finally:
+        # Clean up
+        os.unlink(tmp_path)

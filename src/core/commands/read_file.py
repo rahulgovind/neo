@@ -41,20 +41,21 @@ class ReadFileCommand(Command):
                 The read_file command outputs the contents of a file specified by PATH.
                 
                 PATH can be a relative or absolute path to a file.
-                By default, line numbers are not included in the output.
+                By default, line numbers are included in the output. Use --no-line-numbers to
+                display the content without line numbers.
                 """),
             examples=textwrap.dedent("""
                 ▶read_file path/to/file.py■
-                ✅import os
-                import sys
-                
-                print("Hello, World!")■
-                
-                ▶read_file --include-line-numbers path/to/file.py■
                 ✅1 import os
                 2 import sys
                 3 
                 4 print("Hello, World!")■
+                
+                ▶read_file --no-line-numbers path/to/file.py■
+                ✅import os
+                import sys
+                
+                print("Hello, World!")■
                 
                 ▶read_file config.json■
                 ✅{
@@ -74,12 +75,12 @@ class ReadFileCommand(Command):
                     is_positional=True
                 ),
                 CommandParameter(
-                    name="include_line_numbers",
-                    description="Include line numbers in the output.",
+                    name="no_line_numbers",
+                    description="Exclude line numbers from the output.",
                     required=False,
                     default=False,
                     is_flag=True,
-                    long_flag="include-line-numbers"
+                    long_flag="no-line-numbers"
                 )
             ]
         )
@@ -113,8 +114,8 @@ class ReadFileCommand(Command):
                 raise FatalError(f"Path must be within the workspace: {workspace}")
             full_path = path
         
-        # Determine whether to include line numbers
-        include_line_numbers = args.get("include_line_numbers", False)
+        # Determine whether to include line numbers (default is True, unless --no-line-numbers is specified)
+        include_line_numbers = not args.get("no_line_numbers", False)
         
         # Read the file content
         content = read(full_path, include_line_numbers=include_line_numbers)

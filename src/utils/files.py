@@ -291,7 +291,9 @@ def patch(path: str, diff_text: str) -> str:
         original_lines.pop()
     
     # Parse the diff
-    diff_pattern = re.compile(r'^([\-+]| |)(\d+) (.*?)$')
+    # Allow for an optional space between the operator and the line number
+    # Also allow for empty line content (just add/delete a blank line)
+    diff_pattern = re.compile(r'^([\-+]| |)\s*(\d+)( (.*))?$')
     diff_lines = diff_text.split("\n")
     # Remove empty lines in the diff
     if diff_lines and diff_lines[-1] == "":
@@ -308,10 +310,14 @@ def patch(path: str, diff_text: str) -> str:
         if not match:
             raise FatalError(f"Invalid diff line format: {line}")
             
-        op, line_num_str, line_content = match.groups()
+        op, line_num_str, content_group, line_content = match.groups()
         # Convert empty string to space for unchanged lines
         if op == "":
             op = " "
+            
+        # Handle empty line content
+        if line_content is None:
+            line_content = ""
             
         try:
             line_num = int(line_num_str)
