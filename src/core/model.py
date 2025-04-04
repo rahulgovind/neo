@@ -28,7 +28,7 @@ class Model:
     Handles command parsing and message processing.
     """
     
-    def __init__(self, ctx: Context, model_id: str = "anthropic/claude-3.7-sonnet"):
+    def __init__(self, ctx: Context, model_id: str = "anthropic/claude-3.5-sonnet"):
         """
         Initialize the Model for LLM interactions.
         
