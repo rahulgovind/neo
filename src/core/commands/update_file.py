@@ -136,9 +136,9 @@ class UpdateFileCommand(Command):
         if not diff_text:
             raise FatalError("No diff provided")
         
-        # Get model and shell from context
-        model = ctx.model
+        # Get shell from context and create small model for updates
         shell = ctx.shell
+        model = ctx.select_model("SM")  # Create temporary small model
         
         # First try to apply the diff using the patch function
         logger.info(f"Attempting to apply diff to {file_path}")

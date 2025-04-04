@@ -5,6 +5,7 @@ Context module providing a dataclass for storing context information.
 from dataclasses import dataclass
 import datetime
 import os
+from os import environ
 from typing import Optional, TYPE_CHECKING
 
 from src.core.exceptions import FatalError
@@ -30,6 +31,25 @@ class Context:
     _model: Optional['Model'] = None
     _shell: Optional['Shell'] = None
     _agent: Optional['Agent'] = None
+
+    def select_model(self, size: str = "LG") -> 'Model':
+        """
+        Create a model instance based on size parameter.
+        Args:
+            size: Either "SM" or "LG". Defaults to "LG"
+        Returns:
+            A new Model instance with the specified size
+        """
+        from src.core.model import Model
+        
+        if size not in ["SM", "LG"]:
+            raise ValueError("Size must be either 'SM' or 'LG'")
+        
+        model_id = environ.get("MODEL_ID")  # Default/LG model
+        if size == "SM":
+            model_id = environ.get("SM_MODEL_ID", model_id)  # Fallback to default if SM not specified
+        
+        return Model(ctx=self, model_id=model_id)
     
     @classmethod
     def builder(cls) -> 'ContextBuilder':
@@ -137,6 +157,7 @@ class ContextBuilder:
         
         # Initialize the model
         from src.core.model import Model
+        # Initialize the model
         self._context._model = Model(ctx=self._context, model_id=self._model_name)
         
         # Initialize the agent
