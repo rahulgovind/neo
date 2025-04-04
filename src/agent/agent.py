@@ -22,13 +22,15 @@ class Agent:
     """
     
     # Default system instructions for the agent
-    DEFAULT_INSTRUCTIONS = """
+    DEFAULT_INSTRUCTIONS_TEMPLATE = """
     You are Neo, an AI assistant that can help with a wide range of tasks.
     
     You can assist users by:
     1. Understanding their requirements and questions
     2. Providing relevant information and explanations
     3. Engaging in thoughtful conversation
+    
+    Your current working directory is: {workspace}
     
     - You SHOULD explain your reasoning clearly and offer context for your suggestions. Do this prior to making any command calls.
     - You MUST not write anything after a command call.
@@ -38,7 +40,7 @@ class Agent:
     """
     
     def __init__(self, ctx: Context):
-        self._instructions = self.DEFAULT_INSTRUCTIONS
+        self._instructions = self.DEFAULT_INSTRUCTIONS_TEMPLATE.format(workspace=ctx.workspace)
         self.ctx = ctx
         
         # Initialize state with empty message list
@@ -105,9 +107,13 @@ class Agent:
         # Keep processing until last message in state is from assistant and does not have command calls
         while not (self.state.messages[-1].role == "assistant" and not self.state.messages[-1].has_command_executions()):
             # Process the messages with the model (without auto-executing commands)
+            messages_to_send = self.state.messages.copy()
+            messages_to_send[-1] = messages_to_send[-1].copy(metadata={"cache-control": True})
+            if len(messages_to_send) >= 3:
+                messages_to_send[-3] = messages_to_send[-3].copy(metadata={"cache-control": True})
             current_response = model.process(
                 system=self._instructions,
-                messages=self.state.messages,
+                messages=messages_to_send,
                 commands=self._command_names,
                 auto_execute_commands=False
             )

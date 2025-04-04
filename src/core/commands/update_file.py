@@ -148,10 +148,16 @@ class UpdateFileCommand(Command):
             
             file_content = read_result.result
             
+            # Import the escaping function from messages.py
+            from src.core.messages import _escape_special_chars
+            
+            # Escape the file content to avoid issues with special characters
+            escaped_file_content = _escape_special_chars(file_content)
+            
             # Build the initial message with file content and diff
             initial_message = (
                 f"I need to update the file at '{file_path}' with this diff that couldn't be applied automatically:\n\n{diff_text}\n\n"
-                f"Here is the current content of the file:\n\n{file_content}\n\n"
+                f"Here is the current content of the file:\n\n{escaped_file_content}\n\n"
                 f"Please make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content."
             )
             

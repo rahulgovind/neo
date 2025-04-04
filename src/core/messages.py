@@ -2,11 +2,19 @@
 Message classes for representing conversation content.
 """
 
-from typing import List, Any, Optional, Dict
+import json
+import re
+import uuid
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional, Union
 
 from src.core.constants import (
-    COMMAND_START, COMMAND_END, STDIN_SEPARATOR, 
-    ERROR_PREFIX, SUCCESS_PREFIX
+    COMMAND_END,
+    COMMAND_START,
+    ERROR_PREFIX,
+    STDIN_SEPARATOR,
+    SUCCESS_PREFIX,
 )
 
 
@@ -64,6 +72,104 @@ class CommandCall(TextBlock):
         return self._content
 
 
+def _escape_special_chars(content: str) -> str:
+    """
+    Replace special command characters with their escaped Unicode variants.
+    Also properly escapes already-escaped unicode sequences.
+    
+    Args:
+        content: The content to process
+        
+    Returns:
+        Content with special characters replaced
+    """
+    if content is None:
+        return ""
+    
+    # First, handle already-escaped sequences by doubling the backslashes
+    # This matches \u25b6, \u25a0, etc. and replaces with \\u25b6, \\u25a0, etc.
+    result = re.sub(
+        r'\\u(25b6|25a0|ff5c|274c|2705)', 
+        r'\\\\u\1',  # \1 is the backreference to the captured group
+        content
+    )
+    
+    # Then replace actual special characters with their escaped forms
+    # Create a dictionary mapping special characters to their escape sequences
+    char_to_escape = {
+        COMMAND_START: '\\u25b6',    # ▶ -> \u25b6
+        COMMAND_END: '\\u25a0',      # ■ -> \u25a0
+        STDIN_SEPARATOR: '\\uff5c',  # ｜ -> \uff5c
+        ERROR_PREFIX: '\\u274c',     # ❌ -> \u274c
+        SUCCESS_PREFIX: '\\u2705',   # ✅ -> \u2705
+    }
+    
+    # Build the pattern of all special characters to match
+    pattern = '[' + re.escape(''.join(char_to_escape.keys())) + ']'
+    
+    # Define a replacement function that looks up the correct escape sequence
+    def replace_special_char(match):
+        return char_to_escape[match.group(0)]
+    
+    # Apply the substitution for special characters
+    result = re.sub(pattern, replace_special_char, result)
+    
+    return result
+
+
+def _unescape_special_chars(content: str) -> str:
+    """
+    Reverse the escaping process, converting Unicode escapes back to special characters.
+    Handles both single-escaped and double-escaped sequences correctly.
+    
+    Args:
+        content: The content to process
+        
+    Returns:
+        Content with Unicode escapes converted back to special characters
+    """
+    if content is None:
+        return ""
+    
+    # We need to detect if we're working with:
+    # 1. A literal double-escaped sequence like "\\u25b6" (which should become "\u25b6")
+    # 2. A single-escaped sequence like "\u25b6" (which should become the actual character)
+    
+    # Create a dictionary for the escape sequence to special character mapping
+    escape_to_char = {
+        '\\u25b6': COMMAND_START,     # \u25b6 -> ▶
+        '\\u25a0': COMMAND_END,       # \u25a0 -> ■
+        '\\uff5c': STDIN_SEPARATOR,   # \uff5c -> ｜
+        '\\u274c': ERROR_PREFIX,      # \u274c -> ❌
+        '\\u2705': SUCCESS_PREFIX,    # \u2705 -> ✅
+    }
+    
+    # Define a replacement function for our regex
+    def replacer(match):
+        # Get the full match
+        full_match = match.group(0)
+        prefix = match.group(1)  # Will be either '\\' or '\'
+        code = match.group(2)    # Will be one of our unicode values
+        
+        # If this is a double-escaped sequence (\\u...)
+        if prefix == '\\\\':
+            # Return a single-escaped sequence (\u...)
+            return f'\\u{code}'
+        
+        # Otherwise it's a single-escaped sequence (\u...) 
+        # Return the corresponding special character
+        return escape_to_char.get(f'\\u{code}')
+    
+    # Use a pattern that captures both the prefix and the code to distinguish
+    # between double-escaped (\\u...) and single-escaped (\u...)
+    pattern = r'(\\\\|\\)u(25b6|25a0|ff5c|274c|2705)'
+    
+    # Apply the substitution
+    result = re.sub(pattern, replacer, content)
+    
+    return result
+
+
 class CommandResult(TextBlock):
     """Represents a command result content block in a message."""
     
@@ -76,7 +182,9 @@ class CommandResult(TextBlock):
     def _generate_text(self) -> str:
         prefix = SUCCESS_PREFIX if self.success else ERROR_PREFIX
         content = self.result if self.success else (self.error or "Unknown error")
-        return f"{prefix}{content}{COMMAND_END}"
+        # Escape the content before formatting it in the output string
+        escaped_content = _escape_special_chars(str(content))
+        return f"{prefix}{escaped_content}{COMMAND_END}"
         
     def __str__(self) -> str:
         return self._text
@@ -90,7 +198,8 @@ class ParsedCommand:
     def __init__(self, name: str, parameters: Dict[str, Any], data: Optional[str] = None):
         self.name = name
         self.parameters = parameters
-        self.data = data
+        # Unescape the data if it contains escaped sequences
+        self.data = _unescape_special_chars(data) if data else None
     
     def __str__(self) -> str:
         params_str = " ".join([f"--{k} {v}" if not isinstance(v, bool) else f"--{k}" for k, v in self.parameters.items()])

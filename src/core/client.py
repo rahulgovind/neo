@@ -48,7 +48,11 @@ class Client:
     ❌Error■
     ```
     
-    Note that command results start with "✅" if executed successfully or "❌" if executed with an error.
+    VERY VERY IMPORTANT:
+    - ALWAYS add the ▶ at the start of the command call
+    - ALWAYS add the ■ at the end of the command call
+    - DO NOT make multiple command calls in parallel. Wait for the results to complete first.
+    - Results MUST start with "✅" if executed successfully or "❌" if executed with an error.
     """
     
     def __init__(self):

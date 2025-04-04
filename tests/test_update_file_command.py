@@ -213,3 +213,124 @@ def add(a, b):
         # Make sure it didn't just append the new function but actually replaced it
         self.assertNotIn("def add(a, b):", updated_content,
                         "Model should have replaced the old function")
+    
+    def test_update_with_special_characters(self):
+        """Test updating a file that contains special command characters."""
+        from src.core.constants import COMMAND_START, COMMAND_END, STDIN_SEPARATOR, ERROR_PREFIX, SUCCESS_PREFIX
+        
+        # Create a test file with special characters
+        test_file_path = os.path.join(self.temp_dir, "special_chars_test.txt")
+        original_content = f"""This file contains special characters:
+1. Command start: {COMMAND_START}
+2. Command end: {COMMAND_END}
+3. Stdin separator: {STDIN_SEPARATOR}
+4. Error prefix: {ERROR_PREFIX}
+5. Success prefix: {SUCCESS_PREFIX}
+
+These should be properly escaped when processed.
+"""
+        
+        with open(test_file_path, "w") as f:
+            f.write(original_content)
+        
+        # Create a diff for the update - using the format from the examples
+        # Add a new line at the end of the file
+        diff = "+9 Test completed successfully."
+        
+        # Create and execute the command
+        command_input = f"update_file {test_file_path}{STDIN_SEPARATOR}{diff}{COMMAND_END}"
+        result = self.execute_command(command_input)
+        
+        # Verify the command executed successfully
+        self.assertTrue(result.success, "Command should execute successfully")
+        
+        # Read the updated file content
+        with open(test_file_path, "r") as f:
+            updated_content = f.read()
+        
+        # Verify that all special characters are still present and weren't corrupted
+        self.assertIn(COMMAND_START, updated_content, "Command start character should be preserved")
+        self.assertIn(COMMAND_END, updated_content, "Command end character should be preserved")
+        self.assertIn(STDIN_SEPARATOR, updated_content, "Stdin separator character should be preserved")
+        self.assertIn(ERROR_PREFIX, updated_content, "Error prefix character should be preserved")
+        self.assertIn(SUCCESS_PREFIX, updated_content, "Success prefix character should be preserved")
+        
+        # Verify the update was applied
+        self.assertIn("Test completed successfully.", updated_content, "Update should be applied")
+        
+    def test_update_with_special_chars_replace_line(self):
+        """Test updating a file containing special characters by replacing lines."""
+        from src.core.constants import COMMAND_START, COMMAND_END, STDIN_SEPARATOR, ERROR_PREFIX, SUCCESS_PREFIX
+        
+        # Create a test file with special characters
+        test_file_path = os.path.join(self.temp_dir, "special_chars_replace_test.txt")
+        original_content = f"""Line 1: Normal text
+Line 2: Command start: {COMMAND_START}
+Line 3: Command end: {COMMAND_END}
+Line 4: Stdin separator: {STDIN_SEPARATOR}
+Line 5: Error and success: {ERROR_PREFIX} {SUCCESS_PREFIX}
+"""
+        
+        with open(test_file_path, "w") as f:
+            f.write(original_content)
+        
+        # Create a diff that replaces Line 2 and keeps Line 3 as is
+        diff = "-2 Line 2: Command start: {0}\n+2 Line 2: REPLACED - Command start: {0}\n 3 Line 3: Command end: {1}".format(COMMAND_START, COMMAND_END)
+        
+        # Create and execute the command
+        command_input = f"update_file {test_file_path}{STDIN_SEPARATOR}{diff}{COMMAND_END}"
+        result = self.execute_command(command_input)
+        
+        # Verify the command executed successfully
+        self.assertTrue(result.success, "Command should execute successfully")
+        
+        # Read the updated file content
+        with open(test_file_path, "r") as f:
+            updated_content = f.read()
+        
+        # Verify that all special characters are still present and weren't corrupted
+        self.assertIn(COMMAND_START, updated_content, "Command start character should be preserved")
+        self.assertIn(COMMAND_END, updated_content, "Command end character should be preserved")
+        self.assertIn(STDIN_SEPARATOR, updated_content, "Stdin separator character should be preserved")
+        self.assertIn(ERROR_PREFIX, updated_content, "Error prefix character should be preserved")
+        self.assertIn(SUCCESS_PREFIX, updated_content, "Success prefix character should be preserved")
+        
+        # Verify the specific update was applied
+        self.assertIn(f"Line 2: REPLACED - Command start: {COMMAND_START}", updated_content, "Line replacement should be applied")
+        
+    def test_update_with_special_chars_using_model(self):
+        """Test updating a file with special characters using the model fallback path."""
+        from src.core.constants import COMMAND_START, COMMAND_END, STDIN_SEPARATOR, ERROR_PREFIX, SUCCESS_PREFIX
+        
+        # Create a test file with special characters
+        test_file_path = os.path.join(self.temp_dir, "special_chars_model_test.txt")
+        original_content = f"""This file has special command characters that should be preserved:
+- Command marker: {COMMAND_START} and {COMMAND_END} 
+- Result markers: {SUCCESS_PREFIX} and {ERROR_PREFIX}
+- Stdin separator: {STDIN_SEPARATOR}
+"""
+        
+        with open(test_file_path, "w") as f:
+            f.write(original_content)
+        
+        # Use an invalid diff format to trigger model fallback
+        # The diff is intentionally malformed to trigger the model fallback path
+        invalid_diff = "This is not a valid diff but a human instruction: add a line saying 'Special characters are preserved by escaping.'"
+        
+        # Create and execute the command
+        command_input = f"update_file {test_file_path}{STDIN_SEPARATOR}{invalid_diff}{COMMAND_END}"
+        result = self.execute_command(command_input)
+        
+        # Check that we got a result
+        self.assertIsNotNone(result, "Command should return a result")
+        
+        # Read the updated file content
+        with open(test_file_path, "r") as f:
+            updated_content = f.read()
+        
+        # Verify that all special characters are still present and weren't corrupted
+        self.assertIn(COMMAND_START, updated_content, "Command start character should be preserved")
+        self.assertIn(COMMAND_END, updated_content, "Command end character should be preserved")
+        self.assertIn(STDIN_SEPARATOR, updated_content, "Stdin separator character should be preserved")
+        self.assertIn(ERROR_PREFIX, updated_content, "Error prefix character should be preserved")
+        self.assertIn(SUCCESS_PREFIX, updated_content, "Success prefix character should be preserved")
