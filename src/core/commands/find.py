@@ -11,7 +11,6 @@ import textwrap
 from typing import Dict, Any, Optional, List
 
 from src.core.command import Command, CommandTemplate, CommandParameter
-from src.core.exceptions import FatalError
 from src.core.messages import CommandResult
 from src.core.context import Context
 
@@ -106,7 +105,7 @@ class FindCommand(Command):
         path = args.get("path")
         if not path:
             logger.error("Path not provided to find command")
-            raise FatalError("Path argument is required")
+            raise RuntimeError("Path argument is required")
         
         # Normalize the path to be relative to the workspace
         if not os.path.isabs(path):
@@ -114,7 +113,7 @@ class FindCommand(Command):
         else:
             # If absolute path is provided, ensure it's within the workspace
             if not path.startswith(workspace):
-                raise FatalError(f"Path must be within the workspace: {workspace}")
+                raise RuntimeError(f"Path must be within the workspace: {workspace}")
             search_path = path
         
         # Build the find command
@@ -124,7 +123,7 @@ class FindCommand(Command):
         file_type = args.get("type")
         if file_type:
             if file_type not in ['f', 'd']:
-                raise FatalError("Type must be 'f' for files or 'd' for directories")
+                raise RuntimeError("Type must be 'f' for files or 'd' for directories")
             logger.debug(f"Adding type filter (-type {file_type}) to find command")
             find_cmd.extend(["-type", file_type])
         
@@ -156,8 +155,8 @@ class FindCommand(Command):
             else:
                 # Error occurred
                 logger.error(f"Find command failed with return code {process.returncode}: {process.stderr}")
-                raise FatalError(f"Find failed: {process.stderr}")
+                raise RuntimeError(f"Find failed: {process.stderr}")
         
         except Exception as e:
             logger.error(f"Error executing find command: {str(e)}")
-            raise FatalError(f"Error executing find: {str(e)}")
+            raise RuntimeError(f"Error executing find: {str(e)}")
