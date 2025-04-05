@@ -73,9 +73,8 @@ class CommandCall(TextBlock):
 
 
 def _escape_special_chars(content: str) -> str:
-    """
-    Replace special command characters by surrounding them with <__esc> and </__esc> tags.
-    Also properly escapes any existing tag patterns.
+    r"""
+    Replace special command characters with their escaped unicode representation.
     
     Args:
         content: The content to process
@@ -83,47 +82,39 @@ def _escape_special_chars(content: str) -> str:
     Returns:
         Content with special characters replaced
     """
-    if content is None:
-        return ""
-        
-    # First handle existing escape tags by surrounding them with another layer of escape tags
-    result = re.sub(r'(<__esc>|</__esc>)', 
-                    lambda m: f'<__esc>{m.group(1)}</__esc>', 
-                    content)
-                    
-    # Now escape the special characters
+    
+    # Escape function to replace special characters with \u{hex} format
     def escape_special_chars(match):
         char = match.group(0)
-        # Compute hex code dynamically - format the ord value as hex without 0x prefix
-        hex_code = f"{ord(char):x}"
-        return f'<__esc>{hex_code}</__esc>'
+        # Format the character's code point as a hex string - use raw string to avoid backslash escaping
+        return f"\\u{ord(char):x}"
     
     # Create pattern of all special characters
     special_chars = ''.join([COMMAND_START, COMMAND_END, STDIN_SEPARATOR, ERROR_PREFIX, SUCCESS_PREFIX])
     pattern = f'[{re.escape(special_chars)}]'
     
     # Escape all special characters in the content
-    result = re.sub(pattern, escape_special_chars, result)
+    result = re.sub(pattern, escape_special_chars, content)
     
     return result
 
 
 def _unescape_special_chars(content: str) -> str:
-    """
-    Reverse the escaping process, converting <__esc> tags back to special characters.
-    Handles both single-escaped and double-escaped tags correctly.
+    r"""
+    Reverse the escaping process, converting \u{hex} escape sequences back to special characters.
+    Only converts escape sequences for our specific special characters.
     
     Args:
         content: The content to process
         
     Returns:
-        Content with escaped tags converted back to special characters
+        Content with escape sequences converted back to special characters
     """
     if content is None:
         return ""
     
-    # Dynamically create dictionary mapping hex codes to special characters
-    code_to_char = {
+    # Create a mapping of hex codes to special characters
+    hex_to_char = {
         f"{ord(COMMAND_START):x}": COMMAND_START,
         f"{ord(COMMAND_END):x}": COMMAND_END,
         f"{ord(STDIN_SEPARATOR):x}": STDIN_SEPARATOR,
@@ -131,36 +122,22 @@ def _unescape_special_chars(content: str) -> str:
         f"{ord(SUCCESS_PREFIX):x}": SUCCESS_PREFIX,
     }
     
-    # Function to handle all types of unescaping
-    def unescape_all(match):
-        # Get the full match
-        full_match = match.group(0)
-        
-        # Handle nested escape tags
-        if full_match == '<__esc><__esc></__esc>':
-            return '<__esc>'
-        elif full_match == '<__esc></__esc></__esc>':
-            return '</__esc>'
-        
-        # Handle special character code points
-        try:
-            # Extract the code between the tags
-            code = match.group(1)
-            if code in code_to_char:
-                return code_to_char[code]
-        except IndexError:
-            pass
-            
-        # Return unchanged if no match
-        return full_match
+    # Function to replace only specific escape sequences
+    def unescape_specific_chars(match):
+        # Extract the hex code
+        hex_code = match.group(1)
+        # Only replace if it's one of our special characters
+        if hex_code in hex_to_char:
+            return hex_to_char[hex_code]
+        # Otherwise keep the original
+        return match.group(0)
     
-    # Create pattern with all possible hex codes
-    hex_codes = '|'.join(code_to_char.keys())
-    # Pattern that matches all of our tag formats
-    pattern = f'<__esc><__esc></__esc>|<__esc></__esc></__esc>|<__esc>({hex_codes})</__esc>'
+    # Pattern to match our specific escape sequences
+    hex_codes = '|'.join(hex_to_char.keys())
+    pattern = f'\\\\u({hex_codes})'
     
-    # Apply a single substitution for all patterns
-    result = re.sub(pattern, unescape_all, content)
+    # Replace only our specific escaped sequences
+    result = re.sub(pattern, unescape_specific_chars, content)
     
     return result
 
