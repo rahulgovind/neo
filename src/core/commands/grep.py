@@ -102,7 +102,7 @@ class GrepCommand(Command):
                     name="context",
                     description="Number of context lines to show around each match.",
                     required=False,
-                    default=0,
+                    default=7,
                     is_flag=True,
                     long_flag="context",
                     short_flag="C"
