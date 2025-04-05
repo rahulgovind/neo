@@ -44,6 +44,7 @@ class ReadFileCommand(Command):
                 The read_file command outputs the contents of a file specified by PATH.
                 
                 PATH can be a relative or absolute path to a file.
+                Paths within the ~/.neo directory can be accessed even if outside the current workspace.
                 By default, line numbers are included in the output. Use --no-line-numbers to
                 display the content without line numbers.
                 
@@ -158,8 +159,16 @@ class ReadFileCommand(Command):
             logger.error("Path not provided to read_file command")
             raise FatalError("Path argument is required")
         
-        # Normalize the path to be relative to the workspace
-        if not os.path.isabs(path):
+        # Handle paths to ~/.neo directory as a special case
+        neo_home_dir = os.path.expanduser("~/.neo")
+
+        # Check if the path is explicitly targeting ~/.neo directory
+        if path.startswith("~/.neo") or (os.path.isabs(path) and path.startswith(neo_home_dir)):
+            # Normalize and expand the path for ~/.neo
+            full_path = os.path.expanduser(path) if path.startswith("~") else path
+            logger.info(f"Accessing file in ~/.neo directory: {full_path}")
+        # Standard case: normalize the path to be relative to the workspace
+        elif not os.path.isabs(path):
             full_path = os.path.join(workspace, path)
         else:
             # If absolute path is provided, ensure it's within the workspace
@@ -192,10 +201,4 @@ class ReadFileCommand(Command):
             limit=limit
         )
         
-        # Check for error conditions
-        if content.startswith("File not found:") or \
-           content.startswith("Path is not a file:") or \
-           content.startswith("Error:"):
-            raise FatalError(content)
-            
         return content
