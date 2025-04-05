@@ -51,6 +51,31 @@ The Model component provides an abstraction over the LLM client API:
 - Supports auto-execution of multiple commands in sequence
 - Extracts command calls from LLM responses
 
+#### Commands (src/core/commands/)
+
+Neo implements a consistent command framework for interacting with the file system and other resources:
+
+- Base `Command` class (src/core/command.py) provides a unified interface for all commands
+- Commands use a consistent CLI-like syntax for parameter handling
+- Each command includes rich documentation and usage examples
+- Commands provide structured error handling for reliable execution
+
+Available commands include:
+- `read_file`: Read and display file contents with flexible line number options
+- `write_file`: Create or overwrite files with provided content
+- `update_file`: Apply changes to files using a diff-like syntax
+- `grep`: Search for patterns in files with filtering options
+- `find`: Locate files and directories based on name patterns
+- `bash`: Execute arbitrary shell commands (used as a fallback)
+
+Each command follows the Command Pattern, implementing:
+- A template() method that defines parameters and documentation
+- A process() method that implements the command's functionality
+
+#### Agent (src/agent/agent.py)
+
+The Agent component orchestrates the interaction between the user, Model, and Functions:
+
 [... rest of the content remains the same ...]
 
 #### Chat (src/apps/chat.py)
