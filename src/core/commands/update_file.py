@@ -75,34 +75,88 @@ class UpdateFileCommand(Command):
                 )
             ],
             examples=textwrap.dedent("""
-                # Using the new chunk-based diff format:
-                ▶update_file path/to/file.py｜@3 Update function name
+                # Updating a function name in a Python file
+                # Original file (path/to/file.py):
+                1 def old_function():
+                2     # Function implementation
+                3     return True
+                
+                ▶update_file path/to/file.py｜@1 Update function name
                 - def old_function():
                 + def new_function():
-                  # rest of the function■
+                  # Function implementation■
                 ✅File updated successfully■
                 
-                # Using the new chunk-based diff format for port update:
-                ▶update_file config.json｜@5 Update port
+                # Updated file (path/to/file.py):
+                1 def new_function():
+                2     # Function implementation
+                3     return True
+                
+                # Updating a configuration value in a JSON file
+                # Original file (config.json):
+                1 {
+                2     "host": "localhost",
+                3     "port": 8080,
+                4     "debug": false
+                5 }
+                
+                ▶update_file config.json｜@3 Update port
                 - "port": 8080,
                 + "port": 9000,■
                 ✅File updated successfully■
                 
-                # Multiple chunks in one diff:
-                ▶update_file src/app.js｜@8 Update login function
+                # Updated file (config.json):
+                1 {
+                2     "host": "localhost",
+                3     "port": 9000,
+                4     "debug": false
+                5 }
+                
+                # Multiple chunks in one diff with line numbers
+                # Original file (src/app.js):
+                1 // App initialization
+                2 
+                3 function init() {
+                4     console.log('Initializing...');
+                5 }
+                6 
+                7 function login() {
+                8     // Old implementation
+                9     console.log('Logging in...');
+                10 }
+                
+                ▶update_file src/app.js｜@7 Update login function
                 - function login() {
                 - // Old implementation
                 + function login() {
-                + // New implementation
-                @20 Add error handling
-                  }
-                + // Add error handling
-                + catch(err) {
-                +   console.error(err);
+                + // New implementation with error handling
+                @9 Add error handling
+                  console.log('Logging in...');
+                + try {
+                +   // Authentication code
+                + } catch(err) {
+                +   console.error('Login failed:', err);
                 + }
-                ❌Error: No such file or directory■
+                ■
+                ✅File updated successfully■
                 
-
+                # Updated file (src/app.js):
+                1 // App initialization
+                2 
+                3 function init() {
+                4     console.log('Initializing...');
+                5 }
+                6 
+                7 function login() {
+                8     // New implementation with error handling
+                9     console.log('Logging in...');
+                10     try {
+                11       // Authentication code
+                12     } catch(err) {
+                13       console.error('Login failed:', err);
+                14     }
+                15 }
+                
             """).strip()
         )
     
