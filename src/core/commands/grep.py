@@ -1,7 +1,7 @@
 """
-Grep command implementation.
+NeoGrep command implementation.
 
-This module provides the GrepCommand class for searching content in files.
+This module provides the NeoGrepCommand class for searching content in files.
 """
 
 import os
@@ -19,9 +19,9 @@ from src.core.context import Context
 logger = logging.getLogger(__name__)
 
 
-class GrepCommand(Command):
+class NeoGrepCommand(Command):
     """
-    Command for searching content in files using grep.
+    Command for searching content in files using neogrep.
     
     Features:
     - Delegates to the grep command for efficient searching
@@ -37,7 +37,7 @@ class GrepCommand(Command):
         Returns the command template with parameter definitions and documentation.
         """
         return CommandTemplate(
-            name="grep",
+            name="neogrep",
             description=textwrap.dedent("""
                 Search for a pattern in files or directories.
                 
@@ -198,7 +198,6 @@ class GrepCommand(Command):
                 # Other error occurred
                 logger.error(f"Grep command failed with return code {process.returncode}: {process.stderr}")
                 raise FatalError(f"Search failed: {process.stderr}")
-        
         except Exception as e:
             logger.error(f"Error executing grep command: {str(e)}")
-            raise FatalError(f"Error executing search: {str(e)}")
+            raise FatalError(f"Command execution failed: {str(e)}")

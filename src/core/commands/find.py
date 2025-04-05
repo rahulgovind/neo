@@ -1,7 +1,7 @@
 """
-Find command implementation.
+NeoFind command implementation.
 
-This module provides the FindCommand class for finding files based on name and type.
+This module provides the NeoFindCommand class for finding files based on name and type.
 """
 
 import os
@@ -18,9 +18,9 @@ from src.core.context import Context
 logger = logging.getLogger(__name__)
 
 
-class FindCommand(Command):
+class NeoFindCommand(Command):
     """
-    Command for finding files and directories based on name and type.
+    Command for finding files and directories based on name and type using neofind.
     
     Features:
     - Delegates to the find command for efficient file searching
@@ -34,7 +34,7 @@ class FindCommand(Command):
         Returns the command template with parameter definitions and documentation.
         """
         return CommandTemplate(
-            name="find",
+            name="neofind",
             description=textwrap.dedent("""
                 Find files and directories matching the specified criteria.
                 
