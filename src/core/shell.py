@@ -15,6 +15,7 @@ from src.core.commands.write_file import WriteFileCommand
 from src.core.commands.update_file import UpdateFileCommand
 from src.core.commands.grep import GrepCommand
 from src.core.commands.find import FindCommand
+from src.core.commands.bash import BashCommand
 from src.core.constants import COMMAND_END, COMMAND_START, STDIN_SEPARATOR
 from src.core.context import Context
 from src.core.messages import CommandCall, CommandResult
@@ -224,5 +225,8 @@ class Shell:
         self.register_command(UpdateFileCommand())
         self.register_command(GrepCommand())
         self.register_command(FindCommand())
+        
+        # Register shell command
+        self.register_command(BashCommand())
         
         logger.debug(f"Registered built-in commands: {', '.join(self.list_commands())}")

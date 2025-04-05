@@ -121,3 +121,133 @@ class TestReadFileCommand(FileCommandTestBase):
         
         # Check that we got an appropriate error message
         self.assertIn("not found", str(context.exception).lower())
+        
+    def test_from_parameter(self):
+        """Test reading from a specific line."""
+        # Read from line 5
+        command_input = f"read_file {self.test_py_file} --from 5{COMMAND_END}"
+        result = self.execute_command(command_input)
+        
+        # Check that the command was successful
+        self.assertTrue(result.success)
+        
+        # Check that we read from line 5
+        lines = result.result.split('\n')
+        if lines[0].strip().startswith("..."):
+            lines = lines[1:]  # Remove truncation indicator
+        
+        # First line should be line 5
+        self.assertTrue(lines[0].strip().startswith("5"))
+        self.assertIn("import sys", lines[0])
+        
+        # Should not contain earlier lines
+        self.assertNotIn("#!/usr/bin/env python3", result.result)
+        
+    def test_until_parameter(self):
+        """Test reading until a specific line."""
+        # Read until line 7
+        command_input = f"read_file {self.test_py_file} --until 7{COMMAND_END}"
+        result = self.execute_command(command_input)
+        
+        # Check that the command was successful
+        self.assertTrue(result.success)
+        
+        # Check that we read until line 7
+        self.assertIn("1 #!/usr/bin/env python3", result.result)
+        self.assertIn("5 import sys", result.result) 
+        self.assertIn("6 from typing import List, Dict", result.result)
+        # Should not contain later lines
+        self.assertNotIn("def main():", result.result)
+        
+    def test_from_until_parameters(self):
+        """Test reading from a specific line until a specific line."""
+        # Read from line 8 until line 11
+        command_input = f"read_file {self.test_py_file} --from 8 --until 11{COMMAND_END}"
+        result = self.execute_command(command_input)
+        
+        # Check that the command was successful
+        self.assertTrue(result.success)
+        
+        # Check that we read the specified range
+        lines = result.result.split('\n')
+        if lines[0].strip().startswith("..."):
+            lines = lines[1:]  # Remove truncation indicator
+        
+        self.assertIn("8 def main():", lines[0])
+        self.assertIn('9     """Main function that does something."""', lines[1])
+        self.assertIn('10     print("Hello, world!")', lines[2])
+        # Should not contain lines outside the range
+        self.assertNotIn("import sys", result.result)
+        self.assertNotIn("data = {", result.result)
+        
+    def test_negative_line_indices(self):
+        """Test reading with negative line indices."""
+        # Read last 5 lines
+        command_input = f"read_file {self.test_py_file} --from -5{COMMAND_END}"
+        result = self.execute_command(command_input)
+        
+        # Check that the command was successful
+        self.assertTrue(result.success)
+        
+        # Should contain the last 5 lines
+        self.assertIn('24     return [f"{k}={v}" for k, v in data.items()]', result.result)
+        self.assertIn('26 if __name__ == "__main__":', result.result)
+        self.assertIn('27     main()', result.result)
+        # Should not contain earlier lines
+        self.assertNotIn("def main():", result.result)
+        
+    def test_limit_parameter(self):
+        """Test limiting the number of lines read."""
+        # Read with a limit of 3 lines
+        command_input = f"read_file {self.test_py_file} --limit 3{COMMAND_END}"
+        result = self.execute_command(command_input)
+        
+        # Check that the command was successful
+        self.assertTrue(result.success)
+        
+        # Check that we limit the number of lines appropriately
+        lines = result.result.split('\n')
+        if lines[-1] == '':
+            lines = lines[:-1]  # Remove empty trailing line if present
+        
+        # First verify expected content is included
+        self.assertIn("1 #!/usr/bin/env python3", result.result)
+        self.assertIn("2 # Test file for file command tests", result.result)
+        self.assertIn("3 ", result.result)  # Line 3 should be included (even if blank)
+        
+        # Verify line limit is enforced - should not contain content beyond the limit
+        self.assertNotIn("import sys", result.result)
+        self.assertNotIn("from typing", result.result)
+        
+        # Make sure there aren't too many lines (allowing for a truncation indicator)
+        self.assertLessEqual(len(lines), 4)  # 3 content lines + possibly 1 truncation indicator
+        
+    def test_unlimited_reading(self):
+        """Test reading entire file without line limit."""
+        # Read with unlimited lines (limit = -1)
+        command_input = f"read_file {self.test_py_file} --limit -1{COMMAND_END}"
+        result = self.execute_command(command_input)
+        
+        # Check that the command was successful
+        self.assertTrue(result.success)
+        
+        # Check that we read the entire file
+        self.assertIn("1 #!/usr/bin/env python3", result.result)
+        self.assertIn("8 def main():", result.result)
+        self.assertIn('10     print("Hello, world!")', result.result)
+        self.assertIn('26 if __name__ == "__main__":', result.result)
+        self.assertIn('27     main()', result.result)
+        
+        # Count lines to ensure we got everything
+        with open(self.test_py_file, 'r') as f:
+            file_lines = f.readlines()
+            
+        # Verify key parts of the file are present
+        # Instead of checking exact format (which can vary with indentation),
+        # verify that key content from each line exists somewhere in the result
+        for i, line in enumerate(file_lines, 1):
+            line_content = line.strip()
+            if line_content and not line_content.isspace():  # Skip empty or whitespace-only lines
+                # Just check that the content exists somewhere in the output
+                self.assertIn(line_content, result.result, 
+                              f"Line {i} content missing from output")

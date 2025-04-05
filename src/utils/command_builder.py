@@ -8,11 +8,7 @@ building command documentation.
 
 import argparse
 import logging
-import textwrap
-from typing import Dict, Any, List, Optional, Tuple, TypeVar, Union
-
-from src.core.exceptions import FatalError
-from src.core.messages import CommandResult
+from typing import Dict, Any, List, Optional, Tuple
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -52,9 +48,9 @@ class CommandBuilder:
             
         # Validate data requirements
         if requires_data and not data:
-            raise FatalError(f"Command '{command_name}' requires data (content after |)")
+            raise RuntimeError(f"Command '{command_name}' requires data (content after |)")
         elif not requires_data and data:
-            raise FatalError(f"Command '{command_name}' does not accept data (content after |)")
+            raise RuntimeError(f"Command '{command_name}' does not accept data (content after |)")
         
         # Parse the command line part
         return CommandBuilder.parse(command_name, command_line, parameters), data
@@ -75,6 +71,7 @@ class CommandBuilder:
         Raises:
             ValueError: If parsing fails or required arguments are missing
         """
+        
         # Create an argument parser
         parser = argparse.ArgumentParser(prog=command_name)
         
