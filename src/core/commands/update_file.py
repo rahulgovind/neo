@@ -168,7 +168,7 @@ class UpdateFileCommand(Command):
             else:
                 return f"❌{write_result.error}"
                 
-        except FatalError as e:
+        except RuntimeError as e:
             if bool(args.get("disable_model_fallback")):
                 logger.warning(f"Disabling model fallback: {str(e)}")
                 return f"❌{str(e)}"
