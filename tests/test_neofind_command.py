@@ -1,7 +1,7 @@
 """
-Unit tests for the FindCommand class.
+Unit tests for the NeoFindCommand class.
 
-This test validates the FindCommand functionality:
+This test validates the NeoFindCommand functionality:
 1. Setting up a temporary test environment
 2. Creating test files and directories with known structure
 3. Testing find with name and type parameters
@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 from src.core.command import Command
-from src.core.commands.find import FindCommand
+from src.core.commands.find import NeoFindCommand
 from src.core.exceptions import FatalError
 from src.core import context
 from src.core.context import Context
@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 class TestFindCommand(unittest.TestCase):
-    """Tests for the FindCommand class."""
+    """Tests for the NeoFindCommand class."""
     
     def _create_file_structure(self, base_dir: str, structure: Dict) -> None:
         """Create a file structure from a dictionary specification.
@@ -77,7 +77,7 @@ class TestFindCommand(unittest.TestCase):
         self._create_file_structure(self.temp_dir, file_structure)
         
         # Create a temporary test session ID
-        self.test_session_id = "test_find_session"
+        self.test_session_id = "test_neofind_session"
         
         # Create a context with our temp directory as workspace
         self.ctx = context.Context.builder()\
@@ -99,7 +99,7 @@ class TestFindCommand(unittest.TestCase):
         logger.debug(f"Test directory contents: {os.listdir(self.temp_dir)}")
         
         # Use the shell.parse method to parse the command string
-        command_input = f"find .{COMMAND_END}"
+        command_input = f"neofind .{COMMAND_END}"
         logger.debug(f"Command input: {command_input}")
         
         # Parse the command
@@ -126,7 +126,7 @@ class TestFindCommand(unittest.TestCase):
     def test_name_filter(self):
         """Test finding files by name pattern."""
         # Use the shell.parse method to parse the command string
-        command_input = f"find . --name \"*.py\"{COMMAND_END}"
+        command_input = f"neofind . --name \"*.py\"{COMMAND_END}"
         logger.debug(f"Name filter command: {command_input}")
         parsed_cmd = self.shell.parse(command_input)
         
@@ -156,7 +156,7 @@ class TestFindCommand(unittest.TestCase):
     def test_readme_filter(self):
         """Test finding README files."""
         # Use the shell.parse method to parse the command string
-        command_input = f"find . --name \"README*\"{COMMAND_END}"
+        command_input = f"neofind . --name \"README*\"{COMMAND_END}"
         logger.debug(f"README filter command: {command_input}")
         parsed_cmd = self.shell.parse(command_input)
         
@@ -180,7 +180,7 @@ class TestFindCommand(unittest.TestCase):
     def test_type_filter_directories(self):
         """Test finding only directories."""
         # Use the shell.parse method to parse the command string
-        command_input = f"find . --type d{COMMAND_END}"
+        command_input = f"neofind . --type d{COMMAND_END}"
         logger.debug(f"Type filter (directories) command: {command_input}")
         parsed_cmd = self.shell.parse(command_input)
         
@@ -207,7 +207,7 @@ class TestFindCommand(unittest.TestCase):
     def test_type_filter_files(self):
         """Test finding only files."""
         # Use the shell.parse method to parse the command string
-        command_input = f"find . --type f{COMMAND_END}"
+        command_input = f"neofind . --type f{COMMAND_END}"
         logger.debug(f"Type filter (files) command: {command_input}")
         parsed_cmd = self.shell.parse(command_input)
         
@@ -237,7 +237,7 @@ class TestFindCommand(unittest.TestCase):
     def test_combined_filters(self):
         """Test combining name and type filters."""
         # Use the shell.parse method to parse the command string
-        command_input = f"find . --type f --name \"*.py\"{COMMAND_END}"
+        command_input = f"neofind . --type f --name \"*.py\"{COMMAND_END}"
         logger.debug(f"Combined filters command: {command_input}")
         parsed_cmd = self.shell.parse(command_input)
         
@@ -266,7 +266,7 @@ class TestFindCommand(unittest.TestCase):
     def test_specific_path(self):
         """Test finding in a specific subdirectory."""
         # Use the shell.parse method to parse the command string
-        command_input = f"find ./subdir1{COMMAND_END}"
+        command_input = f"neofind ./subdir1{COMMAND_END}"
         logger.debug(f"Specific path command: {command_input}")
         parsed_cmd = self.shell.parse(command_input)
         

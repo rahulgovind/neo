@@ -13,8 +13,8 @@ from src.core.messages import CommandResult, ParsedCommand
 from src.core.commands.read_file import ReadFileCommand
 from src.core.commands.write_file import WriteFileCommand
 from src.core.commands.update_file import UpdateFileCommand
-from src.core.commands.grep import GrepCommand
-from src.core.commands.find import FindCommand
+from src.core.commands.grep import NeoGrepCommand
+from src.core.commands.find import NeoFindCommand
 from src.core.commands.bash import BashCommand
 from src.core.constants import COMMAND_END, COMMAND_START, STDIN_SEPARATOR
 from src.core.context import Context
@@ -223,8 +223,8 @@ class Shell:
         self.register_command(ReadFileCommand())
         self.register_command(WriteFileCommand())
         self.register_command(UpdateFileCommand())
-        self.register_command(GrepCommand())
-        self.register_command(FindCommand())
+        self.register_command(NeoGrepCommand())
+        self.register_command(NeoFindCommand())
         
         # Register shell command
         self.register_command(BashCommand())
