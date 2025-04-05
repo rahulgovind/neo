@@ -43,18 +43,38 @@ class UpdateFileCommand(Command):
                 
                 The PATH argument can be a relative or absolute path to an existing file.
                 
-                The diff format is:
-                - Lines starting with '-' indicate lines to delete from the original content
-                - Lines starting with '+' indicate lines to add
-                - Lines starting with ' ' indicate unmodified lines that should match for validation
+                The diff format uses the following section types:
+                - @DELETE - For lines to be deleted
+                - @UPDATE - For lines to be updated, with BEFORE and AFTER subsections
+                - @INSERT - For lines to be inserted
                 
-                The line number follows the prefix and precedes the line content.
-                For example: '-3 existing line' means delete line 3.
+                Each line in a section follows this format:
+                <line_number>:<content>
+                
+                For example:
+                @DELETE
+                2:line to delete
+                3:another line to delete
+                
+                @UPDATE
+                BEFORE
+                5:original line
+                6:original line 2
+                AFTER
+                5:updated line
+                6:updated line 2
+                7:new line
+                
+                @INSERT
+                10:new line to insert
+                11:another new line
                 
                 Important rules:
-                - A space prefix means that line is not being modified and must match exactly for validation
-                - It is invalid to have the same line number with both a space prefix and a '+' or '-' prefix
-                - If a consecutive chunk of lines is being updated, the deletions must precede the additions.
+                - @DELETE sections specify lines to be removed from the file
+                - @UPDATE sections must contain both BEFORE and AFTER subsections
+                - @INSERT sections specify new lines to be added at the specified positions
+                - Line numbers in an @UPDATE's AFTER section typically match the BEFORE section
+                - Additional lines in the AFTER section will be inserted after the updated lines
             """).strip(),
             parameters=[
                 CommandParameter(

@@ -121,9 +121,9 @@ def read(path: str, include_line_numbers: bool = False, from_: Optional[int] = N
                 # Add line numbers - for unlimited display, we need to start counting from 1
                 # otherwise, adjust line numbers based on the starting line
                 if read_entire_file:
-                    numbered_lines = [f"{i+1} {line}" for i, line in enumerate(selected_lines)]
+                    numbered_lines = [f"{i+1}:{line}" for i, line in enumerate(selected_lines)]
                 else:
-                    numbered_lines = [f"{i+1} {line}" for i, line in enumerate(selected_lines, start=start_line)]
+                    numbered_lines = [f"{i+1}:{line}" for i, line in enumerate(selected_lines, start=start_line)]
                 result_lines.extend(numbered_lines)
             else:
                 result_lines.extend(selected_lines)
@@ -224,21 +224,161 @@ class PatchOpType(Enum):
     UNCHANGED = ' '
     
 
+def _process_delete_section(section_content: str, original_lines: list, operations: list) -> None:
+    """Process a @DELETE section from the diff."""
+    for line in section_content.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Parse the line number and content
+        parts = line.split(":", 1)
+        if len(parts) < 2:
+            raise RuntimeError(f"Invalid line format in DELETE section, missing line content: {line}")
+        
+        try:
+            line_num = int(parts[0]) - 1  # Convert to 0-indexed
+            line_content = parts[1] if len(parts) > 1 else ""
+        except ValueError:
+            raise RuntimeError(f"Invalid line number in DELETE section: {parts[0]}")
+        
+        # Validate line exists in the original content
+        if line_num >= len(original_lines):
+            raise RuntimeError(f"Line {line_num + 1} does not exist in the original content")
+        if original_lines[line_num] != line_content:
+            raise RuntimeError(
+                f"Line mismatch at line {line_num + 1}:\n" +
+                f"Expected: '{line_content}'\n" +
+                f"Actual: '{original_lines[line_num]}'"
+            )
+        
+        # Add delete operation
+        operations.append((PatchOpType.DELETE.value, line_num, line_content))
+
+
+def _process_update_section(section_content: str, original_lines: list, operations: list) -> None:
+    """Process an @UPDATE section from the diff."""
+    # Split into BEFORE and AFTER sections
+    sections = section_content.split("AFTER")
+    if len(sections) != 2 or "BEFORE" not in sections[0]:
+        raise RuntimeError(f"Invalid UPDATE format, must contain 'BEFORE' and 'AFTER' sections:\n{section_content}")
+    
+    before_section = sections[0].replace("BEFORE", "").strip()
+    after_section = sections[1].strip()
+    
+    # Process BEFORE section (lines to delete)
+    before_lines = []
+    if before_section:
+        for line in before_section.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Parse the line number and content
+            parts = line.split(":", 1)
+            if len(parts) < 2:
+                raise RuntimeError(f"Invalid line format in BEFORE section, missing line content: {line}")
+            
+            try:
+                line_num = int(parts[0]) - 1  # Convert to 0-indexed
+                line_content = parts[1] if len(parts) > 1 else ""
+            except ValueError:
+                raise RuntimeError(f"Invalid line number in BEFORE section: {parts[0]}")
+            
+            before_lines.append((line_num, line_content))
+    
+    # Process AFTER section (lines to add)
+    after_lines = []
+    if after_section:
+        for line in after_section.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Parse the line number and content
+            parts = line.split(":", 1)
+            if len(parts) < 2:
+                raise RuntimeError(f"Invalid line format in AFTER section, missing line content: {line}")
+            
+            try:
+                line_num = int(parts[0]) - 1  # Convert to 0-indexed
+                line_content = parts[1] if len(parts) > 1 else ""
+            except ValueError:
+                raise RuntimeError(f"Invalid line number in AFTER section: {parts[0]}")
+            
+            after_lines.append((line_num, line_content))
+    
+    # Validate BEFORE lines exist in the original content
+    for line_num, line_content in before_lines:
+        if line_num >= len(original_lines):
+            raise RuntimeError(f"Line {line_num + 1} does not exist in the original content")
+        if original_lines[line_num] != line_content:
+            raise RuntimeError(
+                f"Line mismatch at line {line_num + 1}:\n" +
+                f"Expected: '{line_content}'\n" +
+                f"Actual: '{original_lines[line_num]}'"
+            )
+        
+        # Add delete operation
+        operations.append((PatchOpType.DELETE.value, line_num, line_content))
+    
+    # Add the AFTER lines
+    for i, (line_num, line_content) in enumerate(after_lines):
+        operations.append((PatchOpType.ADD.value, line_num, line_content))
+
+
+def _process_insert_section(section_content: str, operations: list) -> None:
+    """Process an @INSERT section from the diff."""
+    for line in section_content.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Parse the line number and content
+        parts = line.split(":", 1)
+        if len(parts) < 2:
+            raise RuntimeError(f"Invalid line format in INSERT section, missing line content: {line}")
+        
+        try:
+            line_num = int(parts[0]) - 1  # Convert to 0-indexed
+            line_content = parts[1] if len(parts) > 1 else ""
+        except ValueError:
+            raise RuntimeError(f"Invalid line number in INSERT section: {parts[0]}")
+        
+        # Add insert operation
+        operations.append((PatchOpType.ADD.value, line_num, line_content))
+
+
 def patch(path: str, diff_text: str) -> str:
     """
-    Apply a diff to update file content.
+    Apply a diff to update file content using the structured format.
     
-    The diff format uses a chunk-based structure:
-    - Lines starting with '@' indicate the start of a chunk with a line number
-    - Format: @<line_number> [optional description]
-    - Within each chunk:
-      - Lines with '- ' indicate lines to delete
-      - Lines with '+ ' indicate lines to add
-      - Lines with '  ' indicate context (unchanged) lines
+    The diff format uses sections marked with:
+    - @DELETE - For lines to be deleted
+    - @UPDATE - For lines to be updated, with BEFORE and AFTER subsections
+    - @INSERT - For lines to be inserted
+    
+    For example:
+    @DELETE
+    2:xyz
+    3:basdf
+
+    @UPDATE
+    BEFORE
+    5:asdf
+    6:asdf
+    AFTER
+    5:asfdwe
+    6:asdgqwe
+    7:werlkjlb
+
+    @INSERT
+    10:asldkfjalkj
+    11:aslkdj
     
     Args:
         path: File to update
-        diff_text: Diff to apply
+        diff_text: Diff to apply in the specified format
         
     Returns:
         Updated content after applying the diff
@@ -258,140 +398,93 @@ def patch(path: str, diff_text: str) -> str:
     
     # Split into lines for processing
     original_lines = content.split("\n")
+    # If the file ends with a newline, the split will create an empty element at the end
+    # Remove it to simplify processing
+    if original_lines and original_lines[-1] == "":
+        original_lines.pop()
     
     try:
-        # Remove empty lines from the diff
-        diff_lines = [
-            line for line in diff_text.split("\n")
-            if line.strip() != ""
-        ]
-        
-        # Process the diff lines
+        # Parse the diff sections
         operations = []
         
-        # Parse the chunk-based format
-        chunk_pattern = re.compile(r'^@(\d+)\s*(.*)$')
-        current_line_num = 0
+        # Split the diff text into sections by finding section markers
+        sections = []
+        current_section = ""
+        current_type = None
         
-        i = 0
-        while i < len(diff_lines):
-            line = diff_lines[i]
-            
-            # Check if this is a chunk header
-            chunk_match = chunk_pattern.match(line)
-            if chunk_match:
-                # Get the starting line number for this chunk (1-indexed in the diff)
-                current_line_num = int(chunk_match.group(1)) - 1  # Convert to 0-indexed
-                i += 1  # Move to the next line
-                
-                # Process lines in this chunk
-                while i < len(diff_lines) and not diff_lines[i].startswith('@'):
-                    chunk_line = diff_lines[i]
-                    
-                    if chunk_line.startswith('- '):
-                        # Delete line
-                        if current_line_num >= len(original_lines):
-                            raise RuntimeError(f"Line {current_line_num + 1} does not exist in the original content")
-                        # Verify that the line to delete matches what's in the diff
-                        line_content = chunk_line[2:]
-                        if original_lines[current_line_num] != line_content:
-                            raise RuntimeError(
-                                f"Line mismatch at line {current_line_num + 1}:\n" +
-                                f"Expected: '{line_content}'\n" +
-                                f"Actual: '{original_lines[current_line_num]}'"
-                            )
-                        operations.append((PatchOpType.DELETE.value, current_line_num, original_lines[current_line_num]))
-                        current_line_num += 1
-                    elif chunk_line.startswith('+ '):
-                        # Add line
-                        operations.append((PatchOpType.ADD.value, current_line_num, chunk_line[2:]))
-                    elif chunk_line.startswith('  '):
-                        # Unchanged line
-                        if current_line_num >= len(original_lines):
-                            raise RuntimeError(f"Line {current_line_num + 1} does not exist in the original content")
-                        # Verify that the unchanged line matches what's in the diff
-                        line_content = chunk_line[2:]
-                        if original_lines[current_line_num] != line_content:
-                            raise RuntimeError(
-                                f"Line mismatch at line {current_line_num + 1}:\n" +
-                                f"Expected: '{line_content}'\n" +
-                                f"Actual: '{original_lines[current_line_num]}'"
-                            )
-                        operations.append((PatchOpType.UNCHANGED.value, current_line_num, original_lines[current_line_num]))
-                        current_line_num += 1
-                    else:
-                        # Invalid line in chunk
-                        raise RuntimeError(f"Invalid line format in chunk: {chunk_line}")
-                    
-                    i += 1
+        for line in diff_text.splitlines():
+            if line.startswith("@DELETE"):
+                if current_type:
+                    sections.append((current_type, current_section))
+                current_type = "DELETE"
+                current_section = ""
+            elif line.startswith("@UPDATE"):
+                if current_type:
+                    sections.append((current_type, current_section))
+                current_type = "UPDATE"
+                current_section = ""
+            elif line.startswith("@INSERT"):
+                if current_type:
+                    sections.append((current_type, current_section))
+                current_type = "INSERT"
+                current_section = ""
             else:
-                # If it's not a chunk header, raise an error
-                raise RuntimeError(f"Invalid diff format: Line must start with @ to indicate a chunk: {line}")
+                current_section += line + "\n"
         
-        # Sort operations by line number, with deletions before additions
-        # This is important to handle overlapping line changes correctly
+        if current_type and current_section:
+            sections.append((current_type, current_section))
+        
+        # Process each section based on its type
+        for section_type, section_content in sections:
+            section_content = section_content.strip()
+            if not section_content:
+                continue
+                
+            if section_type == "DELETE":
+                _process_delete_section(section_content, original_lines, operations)
+            elif section_type == "UPDATE":
+                _process_update_section(section_content, original_lines, operations)
+            elif section_type == "INSERT":
+                _process_insert_section(section_content, operations)
+            else:
+                raise RuntimeError(f"Unknown section type: {section_type}")
+        
+        # Sort operations by line number in reverse order
+        # This ensures we modify from bottom to top to avoid line number shifting
+        # For INSERT operations at the same position, maintain their order from the diff
+        # DELETE always comes before INSERT at the same position
         def op_sort_key(operation):
             op, line_num, _ = operation
-            # Sort by line number first
-            # Then by operation type: deletions before additions
-            return (line_num, 0 if op == PatchOpType.DELETE.value else 
-                           1 if op == PatchOpType.UNCHANGED.value else 2)
+            # Sort by negative line number for reverse order (bottom to top)
+            # Secondary sort: DELETE operations (0) before INSERT operations (1)
+            return (-line_num, 0 if op == PatchOpType.DELETE.value else 1)
             
         operations.sort(key=op_sort_key)
         
-        # Process changes by iterating over operations
-        result = []
-        next_original_line_number = 0
-        
-        # Process each operation in order
+        # Apply the operations to create the updated content
+        updated_lines = original_lines.copy()
         for op, line_num, line_content in operations:
-            # For delete and unmodified operations, ensure the line exists
-            if op in [PatchOpType.DELETE.value, PatchOpType.UNCHANGED.value] and line_num >= len(original_lines):
-                raise RuntimeError(f"Line {line_num + 1} does not exist in the original content")
-                
-            # If there are lines to copy before this operation, copy them
-            if line_num > next_original_line_number and next_original_line_number < len(original_lines):
-                # Copy all lines up to but not including the current line
-                for i in range(next_original_line_number, line_num):
-                    result.append(original_lines[i])
-                next_original_line_number = line_num
-            
-            # Process the current operation
             if op == PatchOpType.DELETE.value:
-                # Skip deleted line and move to next line
-                next_original_line_number += 1
+                # Remove the line at the specified position
+                if 0 <= line_num < len(updated_lines):
+                    updated_lines.pop(line_num)
             elif op == PatchOpType.ADD.value:
-                # Add the new line
-                result.append(line_content)
-                # Don't increment next_original_line_number for additions
-            elif op == PatchOpType.UNCHANGED.value:
-                # Add the unchanged line and move to next line
-                result.append(line_content)
-                next_original_line_number += 1
+                # Insert a new line at the specified position
+                # Note: this handles both insertion and append correctly
+                if 0 <= line_num <= len(updated_lines):
+                    updated_lines.insert(line_num, line_content)
+                else:
+                    # If position is beyond end of file, just append
+                    updated_lines.append(line_content)
         
-        # Add any remaining lines from the original content
-        if next_original_line_number < len(original_lines):
-            for i in range(next_original_line_number, len(original_lines)):
-                result.append(original_lines[i])
-        
-        # Convert the result to a string
-        result_str = '\n'.join(result)
-        
-        # Add trailing newline if the original had one or if there are lines in the result
-        if result_str and not result_str.endswith('\n'):
-            result_str += '\n'
-        
-        return result_str
-        
-    except RuntimeError as e:
-        # Extract line number from error message if possible
-        line_num_match = re.search(r'[Ll]ine (\d+)', str(e))
-        error_line_num = None
-        if line_num_match:
-            try:
-                error_line_num = int(line_num_match.group(1))
-            except ValueError:
-                pass
+        # Combine the updated lines into the result
+        # Add a trailing newline to match standard text file format
+        updated_content = "\n".join(updated_lines) + "\n"
+        return updated_content
+    except Exception as e:
+        # Prepare the error message
+        error_msg = f"Error applying patch to {path}: {str(e)}"
+        raise RuntimeError(error_msg)
         
         # Prepare error message with context
         error_msg = str(e)
