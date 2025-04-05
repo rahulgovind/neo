@@ -51,30 +51,14 @@ class UpdateFileCommand(Command):
                 Each line in a section follows this format:
                 <line_number>:<content>
                 
-                For example:
-                @DELETE
-                2:line to delete
-                3:another line to delete
-                
-                @UPDATE
-                BEFORE
-                5:original line
-                6:original line 2
-                AFTER
-                5:updated line
-                6:updated line 2
-                7:new line
-                
-                @INSERT
-                10:new line to insert
-                11:another new line
-                
                 Important rules:
                 - @DELETE sections specify lines to be removed from the file
                 - @UPDATE sections must contain both BEFORE and AFTER subsections
                 - @INSERT sections specify new lines to be added at the specified positions
                 - Line numbers in an @UPDATE's AFTER section typically match the BEFORE section
                 - Additional lines in the AFTER section will be inserted after the updated lines
+                - Different sections should not overlap in the lines they modify
+                - Line numbers always correspond to the original file contents
             """).strip(),
             parameters=[
                 CommandParameter(
@@ -95,87 +79,122 @@ class UpdateFileCommand(Command):
                 )
             ],
             examples=textwrap.dedent("""
-                # Updating a function name in a Python file
-                # Original file (path/to/file.py):
-                1 def old_function():
-                2     # Function implementation
-                3     return True
+                # Example 1: Simple @DELETE operation
+                # Original file (delete_example.txt):
+                1:First line
+                2:Line to be deleted
+                3:Third line
+                4:Fourth line
                 
-                ▶update_file path/to/file.py｜@1 Update function name
-                - def old_function():
-                + def new_function():
-                  # Function implementation■
-                ✅File updated successfully■
-                
-                # Updated file (path/to/file.py):
-                1 def new_function():
-                2     # Function implementation
-                3     return True
-                
-                # Updating a configuration value in a JSON file
-                # Original file (config.json):
-                1 {
-                2     "host": "localhost",
-                3     "port": 8080,
-                4     "debug": false
-                5 }
-                
-                ▶update_file config.json｜@3 Update port
-                - "port": 8080,
-                + "port": 9000,■
-                ✅File updated successfully■
-                
-                # Updated file (config.json):
-                1 {
-                2     "host": "localhost",
-                3     "port": 9000,
-                4     "debug": false
-                5 }
-                
-                # Multiple chunks in one diff with line numbers
-                # Original file (src/app.js):
-                1 // App initialization
-                2 
-                3 function init() {
-                4     console.log('Initializing...');
-                5 }
-                6 
-                7 function login() {
-                8     // Old implementation
-                9     console.log('Logging in...');
-                10 }
-                
-                ▶update_file src/app.js｜@7 Update login function
-                - function login() {
-                - // Old implementation
-                + function login() {
-                + // New implementation with error handling
-                @9 Add error handling
-                  console.log('Logging in...');
-                + try {
-                +   // Authentication code
-                + } catch(err) {
-                +   console.error('Login failed:', err);
-                + }
+                ▶update_file delete_example.txt｜Remove the second line
+                @DELETE
+                2:Line to be deleted
                 ■
                 ✅File updated successfully■
                 
-                # Updated file (src/app.js):
-                1 // App initialization
-                2 
-                3 function init() {
-                4     console.log('Initializing...');
-                5 }
-                6 
-                7 function login() {
-                8     // New implementation with error handling
-                9     console.log('Logging in...');
-                10     try {
-                11       // Authentication code
-                12     } catch(err) {
-                13       console.error('Login failed:', err);
-                14     }
-                15 }
+                # Updated file (delete_example.txt):
+                1:First line
+                2:Third line
+                3:Fourth line
+                
+                # Example 2: Simple @INSERT operation
+                # Original file (insert_example.txt):
+                1:Header line
+                2:Footer line
+                
+                ▶update_file insert_example.txt｜Insert content between header and footer
+                @INSERT
+                2:New content line 1
+                3:New content line 2
+                ■
+                ✅File updated successfully■
+                
+                # Updated file (insert_example.txt):
+                1:Header line
+                2:New content line 1
+                3:New content line 2
+                4:Footer line
+                
+                # Example 3: Simple @UPDATE operation
+                # Original file (update_example.py):
+                1:def old_function():
+                2:    # Function implementation
+                3:    return True
+                
+                ▶update_file update_example.py｜Update function name
+                @UPDATE
+                BEFORE
+                1:def old_function():
+                AFTER
+                1:def new_function():
+                ■
+                ✅File updated successfully■
+                
+                # Updated file (update_example.py):
+                1:def new_function():
+                2:    # Function implementation
+                3:    return True
+                
+                # Example 4: Complex example with all operations
+                # Original file (config.js):
+                1:// Configuration file
+                2:const config = {
+                3:    host: 'localhost',
+                4:    port: 8080,
+                5:    debug: false,
+                6:    timeout: 30000
+                7:};
+                8:
+                9:// Export configuration
+                10:module.exports = config;
+                
+                ▶update_file config.js｜Update configuration settings
+                @DELETE
+                9:// Export configuration
+                
+                @UPDATE
+                BEFORE
+                3:    host: 'localhost',
+                4:    port: 8080,
+                AFTER
+                3:    host: 'production.example.com',
+                4:    port: 443,
+                
+                @INSERT
+                7:    secure: true,
+                8:    retryCount: 3,
+                
+                @UPDATE
+                BEFORE
+                10:module.exports = config;
+                AFTER
+                10:// Add environment-specific overrides
+                11:if (process.env.NODE_ENV === 'development') {
+                12:    config.host = 'localhost';
+                13:    config.port = 8080;
+                14:}
+                15:
+                16:module.exports = config;
+                ■
+                ✅File updated successfully■
+                
+                # Updated file (config.js):
+                1:// Configuration file
+                2:const config = {
+                3:    host: 'production.example.com',
+                4:    port: 443,
+                5:    debug: false,
+                6:    timeout: 30000,
+                7:    secure: true,
+                8:    retryCount: 3
+                9:};
+                10:// Add environment-specific overrides
+                11:if (process.env.NODE_ENV === 'development') {
+                12:    config.host = 'localhost';
+                13:    config.port = 8080;
+                14:}
+                15:
+                16:module.exports = config;
                 
             """).strip()
         )

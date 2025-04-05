@@ -49,17 +49,15 @@ class ReadFileCommand(Command):
                 
                 By default, at most 200 lines will be returned. Use --from and --until to specify
                 particular sections of the file. Use --limit to change the maximum number of lines shown.
-                To read a specific section, use --from 100 --until 200 to read lines 100-200.
-                Use --from 200 to read from line 200, or --until 100 to read until line 100.
-                For negative indices (counting from end), use --from -100 to read last 100 lines.
+                Negative indices count from the end of the file.
                 Use --limit -1 to read the entire file without line limits.
                 """),
             examples=textwrap.dedent("""
                 ▶read_file path/to/file.py■
-                ✅1 import os
-                2 import sys
-                3 
-                4 print("Hello, World!")■
+                ✅1:import os
+                2:import sys
+                3:
+                4:print("Hello, World!")■
                 
                 ▶read_file --no-line-numbers path/to/file.py■
                 ✅import os
@@ -68,33 +66,33 @@ class ReadFileCommand(Command):
                 print("Hello, World!")■
                 
                 ▶read_file --from 323 path/to/large_file.py■
-                ✅323 def process_data():
-                324     # Process data function
+                ✅323:def process_data():
+                324:    # Process data function
                 ...
-                423     return result
+                423:    return result
                 ... 157 additional lines■
                 
                 ▶read_file --until 50 path/to/file.py■
                 ✅... 20 additional lines
-                30 import os
+                30:import os
                 ...
-                50 # Show lines before line 50■
+                50:# Show lines before line 50■
                 
                 ▶read_file --from 100 --until 200 config.json■
-                ✅100 {
-                    # Lines 100-200
-                }■
+                ✅100:{
+                101:    # Lines 100-200
+                102:}■
                 
                 ▶read_file --from -100 path/to/file.py■
-                ✅900 # Last 100 lines of the file
+                ✅900:# Last 100 lines of the file
                 ...
-                999 # End of file■
+                999:# End of file■
                 
                 ▶read_file --limit -1 path/to/file.py■
-                ✅1 # Entire file from beginning to end
-                2 # Second line
+                ✅1:# Entire file from beginning to end
+                2:# Second line
                 ...
-                999 # Including the last line■
+                999:# Including the last line■
                 
                 ▶read_file nonexistent.py■
                 ❌File not found: nonexistent.py■
