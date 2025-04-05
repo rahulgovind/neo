@@ -27,6 +27,8 @@ class ReadFileCommand(Command):
     - Adds line numbers to make referencing specific lines easier
     - Handles common file reading errors gracefully
     - Uses the workspace from the Context
+    - Supports reading specific line ranges
+    - Limits output to a reasonable number of lines by default
     """
     
     def template(self) -> CommandTemplate:
@@ -43,6 +45,9 @@ class ReadFileCommand(Command):
                 PATH can be a relative or absolute path to a file.
                 By default, line numbers are included in the output. Use --no-line-numbers to
                 display the content without line numbers.
+                
+                By default, at most 200 lines will be returned. Use --range to specify
+                particular sections of the file.
                 """),
             examples=textwrap.dedent("""
                 ▶read_file path/to/file.py■
@@ -57,11 +62,21 @@ class ReadFileCommand(Command):
                 
                 print("Hello, World!")■
                 
-                ▶read_file config.json■
-                ✅{
-                    "debug": true,
-                    "port": 8080
+                ▶read_file --range "323:" path/to/large_file.py■
+                ✅323 def process_data():
+                324     # Read line 323 and 100 lines after it■
+                
+                ▶read_file --range ":50" path/to/file.py■
+                ✅50 # Show 100 lines before line 50■
+                
+                ▶read_file --range "100:200" config.json■
+                ✅100 {
+                    # Lines 100-200
                 }■
+                
+                ▶read_file --range "-100:" path/to/file.py■
+                ✅900 # Last 100 lines of the file
+                ...■
                 
                 ▶read_file nonexistent.py■
                 ❌File not found: nonexistent.py■
@@ -81,6 +96,12 @@ class ReadFileCommand(Command):
                     default=False,
                     is_flag=True,
                     long_flag="no-line-numbers"
+                ),
+                CommandParameter(
+                    name="range",
+                    description="Specify a range of lines to read. Format: 'start:end', '323:' (line 323 + 100 lines), ':323' (100 lines before 323), '-100:' (last 100 lines)",
+                    required=False,
+                    short_flag="R"
                 )
             ]
         )
@@ -117,8 +138,16 @@ class ReadFileCommand(Command):
         # Determine whether to include line numbers (default is True, unless --no-line-numbers is specified)
         include_line_numbers = not args.get("no_line_numbers", False)
         
+        # Get range parameter if specified
+        range_str = args.get("range")
+        
         # Read the file content
-        content = read(full_path, include_line_numbers=include_line_numbers)
+        content = read(
+            full_path, 
+            include_line_numbers=include_line_numbers,
+            range_str=range_str,
+            max_lines=200
+        )
         
         # Check for error conditions
         if content.startswith("File not found:") or \

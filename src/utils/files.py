@@ -23,7 +23,7 @@ from src.core.messages import _escape_special_chars, _unescape_special_chars
 # Configure logging
 logger = logging.getLogger(__name__)
 
-def read(path: str, include_line_numbers: bool = False) -> str:
+def read(path: str, include_line_numbers: bool = False, range_str: Optional[str] = None, max_lines: int = 200) -> str:
     """
     Reads content from a single file at the specified path.
     Special command characters are automatically escaped with Unicode escapes.
@@ -31,6 +31,10 @@ def read(path: str, include_line_numbers: bool = False) -> str:
     Args:
         path: Path to the file to read
         include_line_numbers: Whether to prefix each line with its line number
+        range_str: Optional range specification in format "start:end" 
+                   Examples: "323:" (line 323 + 100 lines), ":323" (100 lines before 323),
+                   "323:423" (lines 323-423), "-100:" (last 100 lines)
+        max_lines: Maximum number of lines to return (default: 200)
             
     Returns:
         File contents, optionally with line numbers, or error message
@@ -50,17 +54,82 @@ def read(path: str, include_line_numbers: bool = False) -> str:
             # Read the file content directly to preserve the exact format including final newline
             content = f.read()
             
-            if include_line_numbers:
-                # Split into lines and add line numbers
-                lines = content.split("\n")  # keepends=True to preserve newlines
-                numbered_lines = [f"{i+1} {line}" for i, line in enumerate(lines)]
-                result = "\n".join(numbered_lines)
+            # Split into lines for processing
+            lines = content.split("\n")
+            total_lines = len(lines)
+            
+            # Process range parameter if provided
+            start_line = 0
+            end_line = total_lines
+            
+            if range_str:
+                try:
+                    # Parse the range string
+                    if ":" not in range_str:
+                        raise ValueError("Range must contain colon ':'")
                     
-                logger.info(f"Successfully read file: {path} ({len(lines)} lines)")
-                return result
+                    range_parts = range_str.split(":")
+                    start_str = range_parts[0]
+                    end_str = range_parts[1]
+                    
+                    # Process start line
+                    if start_str:
+                        start_line = int(start_str)
+                        # Handle negative indices (counting from end)
+                        if start_line < 0:
+                            start_line = total_lines + start_line
+                        else:
+                            # Convert to 0-indexed
+                            start_line = start_line - 1
+                    else:
+                        # If no start specified with ":N", show 100 lines before end
+                        end_line = int(end_str)
+                        if end_line < 0:
+                            end_line = total_lines + end_line
+                        else:
+                            # Convert to 0-indexed
+                            end_line = min(end_line, total_lines)
+                        start_line = max(0, end_line - 100)
+                    
+                    # Process end line
+                    if end_str:
+                        end_line = int(end_str)
+                        # Handle negative indices
+                        if end_line < 0:
+                            end_line = total_lines + end_line
+                        else:
+                            # Convert to 0-indexed + 1 (to include the end line)
+                            end_line = min(end_line, total_lines)
+                    else:
+                        # If no end specified with "N:", show N + 100 lines
+                        start_line = max(0, start_line)
+                        end_line = min(start_line + 100, total_lines)
+                    
+                except ValueError as e:
+                    logger.error(f"Invalid range format: {range_str} - {str(e)}")
+                    return f"Error: Invalid range format: {range_str} - {str(e)}"
+            
+            # Validate range boundaries
+            start_line = max(0, min(start_line, total_lines - 1))
+            end_line = max(start_line + 1, min(end_line, total_lines))
+            
+            # Apply max_lines limit if no specific range was requested
+            if not range_str and (end_line - start_line) > max_lines:
+                end_line = start_line + max_lines
+            
+            # Get the selected lines
+            selected_lines = lines[start_line:end_line]
+            
+            # Format the result
+            if include_line_numbers:
+                # Add line numbers
+                numbered_lines = [f"{i+1} {line}" for i, line in enumerate(selected_lines, start=start_line+1)]
+                result = "\n".join(numbered_lines)
             else:
-                logger.info(f"Successfully read file: {path} ({len(content.split("\n"))} lines)")
-                return content
+                result = "\n".join(selected_lines)
+                
+            logger.info(f"Successfully read file: {path} (showing {len(selected_lines)} of {total_lines} lines)")
+            return result
                 
     except UnicodeDecodeError:
         logger.error(f"File is not text or has unknown encoding: {path}")
