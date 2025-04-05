@@ -74,8 +74,8 @@ class CommandCall(TextBlock):
 
 def _escape_special_chars(content: str) -> str:
     """
-    Replace special command characters with their escaped Unicode variants.
-    Also properly escapes already-escaped unicode sequences.
+    Replace special command characters by surrounding them with <__esc> and </__esc> tags.
+    Also properly escapes any existing tag patterns.
     
     Args:
         content: The content to process
@@ -85,87 +85,82 @@ def _escape_special_chars(content: str) -> str:
     """
     if content is None:
         return ""
+        
+    # First handle existing escape tags by surrounding them with another layer of escape tags
+    result = re.sub(r'(<__esc>|</__esc>)', 
+                    lambda m: f'<__esc>{m.group(1)}</__esc>', 
+                    content)
+                    
+    # Now escape the special characters
+    def escape_special_chars(match):
+        char = match.group(0)
+        # Compute hex code dynamically - format the ord value as hex without 0x prefix
+        hex_code = f"{ord(char):x}"
+        return f'<__esc>{hex_code}</__esc>'
     
-    # First, handle already-escaped sequences by doubling the backslashes
-    # This matches \\u25b6, \\u25a0, etc. and replaces with \\\u25b6, \\\u25a0, etc.
-    result = re.sub(
-        r'\\u(25b6|25a0|ff5c|274c|2705)', 
-        r'\\\\u\1',  # \1 is the backreference to the captured group
-        content
-    )
+    # Create pattern of all special characters
+    special_chars = ''.join([COMMAND_START, COMMAND_END, STDIN_SEPARATOR, ERROR_PREFIX, SUCCESS_PREFIX])
+    pattern = f'[{re.escape(special_chars)}]'
     
-    # Then replace actual special characters with their escape sequences
-    # Create a dictionary mapping special characters to their escape sequences
-    char_to_escape = {
-        COMMAND_START: '\\\u25b6',    # \u25b6 -> \\u25b6
-        COMMAND_END: '\\\u25a0',      # \u25a0 -> \\u25a0
-        STDIN_SEPARATOR: '\\\uff5c',  # \uff5c -> \\uff5c
-        ERROR_PREFIX: '\\\u274c',     # \u274c -> \\u274c
-        SUCCESS_PREFIX: '\\\u2705',   # \u2705 -> \\u2705
-    }
-    
-    # Build the pattern of all special characters to match
-    pattern = '[' + re.escape(''.join(char_to_escape.keys())) + ']'
-    
-    # Define a replacement function that looks up the correct escape sequence
-    def replace_special_char(match):
-        return char_to_escape[match.group(0)]
-    
-    # Apply the substitution for special characters
-    result = re.sub(pattern, replace_special_char, result)
+    # Escape all special characters in the content
+    result = re.sub(pattern, escape_special_chars, result)
     
     return result
 
 
 def _unescape_special_chars(content: str) -> str:
     """
-    Reverse the escaping process, converting Unicode escapes back to special characters.
-    Handles both single-escaped and double-escaped sequences correctly.
+    Reverse the escaping process, converting <__esc> tags back to special characters.
+    Handles both single-escaped and double-escaped tags correctly.
     
     Args:
         content: The content to process
         
     Returns:
-        Content with Unicode escapes converted back to special characters
+        Content with escaped tags converted back to special characters
     """
     if content is None:
         return ""
     
-    # We need to detect if we're working with:
-    # 1. A literal double-escaped sequence like "\\\u25b6" (which should become "\\u25b6")
-    # 2. A single-escaped sequence like "\\u25b6" (which should become the actual character)
-    
-    # Create a dictionary for the escape sequence to special character mapping
-    escape_to_char = {
-        '\\\u25b6': COMMAND_START,     # \\u25b6 -> \u25b6
-        '\\\u25a0': COMMAND_END,       # \\u25a0 -> \u25a0
-        '\\\uff5c': STDIN_SEPARATOR,   # \\uff5c -> \uff5c
-        '\\\u274c': ERROR_PREFIX,      # \\u274c -> \u274c
-        '\\\u2705': SUCCESS_PREFIX,    # \\u2705 -> \u2705
+    # Dynamically create dictionary mapping hex codes to special characters
+    code_to_char = {
+        f"{ord(COMMAND_START):x}": COMMAND_START,
+        f"{ord(COMMAND_END):x}": COMMAND_END,
+        f"{ord(STDIN_SEPARATOR):x}": STDIN_SEPARATOR,
+        f"{ord(ERROR_PREFIX):x}": ERROR_PREFIX,
+        f"{ord(SUCCESS_PREFIX):x}": SUCCESS_PREFIX,
     }
     
-    # Define a replacement function for our regex
-    def replacer(match):
+    # Function to handle all types of unescaping
+    def unescape_all(match):
         # Get the full match
         full_match = match.group(0)
-        prefix = match.group(1)  # Will be either '\\' or '\'
-        code = match.group(2)    # Will be one of our unicode values
         
-        # If this is a double-escaped sequence (\\u...)
-        if prefix == '\\\\':
-            # Return a single-escaped sequence (\u...)
-            return f'\\u{code}'
+        # Handle nested escape tags
+        if full_match == '<__esc><__esc></__esc>':
+            return '<__esc>'
+        elif full_match == '<__esc></__esc></__esc>':
+            return '</__esc>'
         
-        # Otherwise it's a single-escaped sequence (\u...) 
-        # Return the corresponding special character
-        return escape_to_char.get(f'\\u{code}')
+        # Handle special character code points
+        try:
+            # Extract the code between the tags
+            code = match.group(1)
+            if code in code_to_char:
+                return code_to_char[code]
+        except IndexError:
+            pass
+            
+        # Return unchanged if no match
+        return full_match
     
-    # Use a pattern that captures both the prefix and the code to distinguish
-    # between double-escaped (\\u...) and single-escaped (\u...)
-    pattern = r'(\\\\|\\)u(25b6|25a0|ff5c|274c|2705)'
+    # Create pattern with all possible hex codes
+    hex_codes = '|'.join(code_to_char.keys())
+    # Pattern that matches all of our tag formats
+    pattern = f'<__esc><__esc></__esc>|<__esc></__esc></__esc>|<__esc>({hex_codes})</__esc>'
     
-    # Apply the substitution
-    result = re.sub(pattern, replacer, content)
+    # Apply a single substitution for all patterns
+    result = re.sub(pattern, unescape_all, content)
     
     return result
 
