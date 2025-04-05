@@ -57,26 +57,33 @@ Neo implements a consistent command framework for interacting with the file syst
 
 - Base `Command` class (src/core/command.py) provides a unified interface for all commands
 - Commands use a consistent CLI-like syntax for parameter handling
-- Each command includes rich documentation and usage examples
+- Each command includes rich documentation and usage examples with formatted terminal display
 - Commands provide structured error handling for reliable execution
+- Parameter processing supports both positional and flag arguments with fully declarative definitions
 
 Available commands include:
-- `read_file`: Read and display file contents with flexible line number options
-- `write_file`: Create or overwrite files with provided content
-- `update_file`: Apply changes to files using a diff-like syntax
-- `grep`: Search for patterns in files with filtering options
-- `find`: Locate files and directories based on name patterns
-- `bash`: Execute arbitrary shell commands (used as a fallback)
+- `read_file`: Read and display file contents with flexible line number options, range selection, and line limiting
+- `write_file`: Create or overwrite files with provided content, with automatic parent directory creation and code linting
+- `update_file`: Apply changes to files using a structured diff syntax, with model-assisted fallback for complex changes
+- `neogrep` (grep): Search for patterns in files with filtering by file types and support for context lines
+- `neofind` (find): Locate files and directories based on name patterns and file types
+- `bash`: Execute arbitrary shell commands as a fallback for operations not covered by specialized commands
 
-Each command follows the Command Pattern, implementing:
-- A template() method that defines parameters and documentation
-- A process() method that implements the command's functionality
+The command architecture follows these design principles:
+- **Command Pattern**: Each command implements:
+  - A `template()` method that defines parameters and documentation
 
+  - A `process()` method that implements the command's functionality
 #### Agent (src/agent/agent.py)
+- **Consistent Command Interface**: All commands follow a unified model with CLI-like syntax
 
+- **Rich Documentation**: Documentation includes descriptions, parameter details, and interactive examples
 The Agent component orchestrates the interaction between the user, Model, and Functions:
+- **Robust Error Handling**: Commands provide detailed error feedback to users and system components
 
+- **Workspace Awareness**: Commands respect workspace boundaries for security
 [... rest of the content remains the same ...]
+
 
 #### Chat (src/apps/chat.py)
 
@@ -95,6 +102,20 @@ The CLI component ties everything together:
 - Sets up the application environment
 - Initializes all components with appropriate configurations
 - Provides the main entry point for the application
+
+### Quality Assurance and Linting
+
+Neo integrates code quality checks directly into file operations:
+
+- **Linting Framework**: A modular, extensible linting system checks code quality during write operations
+  - Implemented using a registry pattern to support multiple file types
+  - Initially supports Python files with pylint, easily extendable to other languages
+  - Files are written even when lint fails, but users receive detailed error reports
+
+- **Design Principles**:
+  - Separation of concerns: Linting logic is isolated from file operations
+  - Extensibility: Adding support for new file types requires minimal code changes
+  - Non-blocking: Linting issues warn users but don't prevent writing files
 
 ## Future Considerations
 

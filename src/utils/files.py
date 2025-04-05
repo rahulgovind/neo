@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from enum import Enum
 from src.core.constants import COMMAND_START, COMMAND_END, STDIN_SEPARATOR, ERROR_PREFIX, SUCCESS_PREFIX
 from src.core.messages import _escape_special_chars, _unescape_special_chars
+from src.utils.linters import lint_code, get_supported_file_types, LintError
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -163,7 +164,7 @@ def overwrite(workspace: str, path: str, content: str) -> Tuple[bool, int, int]:
         Tuple of (success, lines_added, lines_deleted)
         
     Raises:
-        Various exceptions related to file operations
+        Various exceptions related to file operations and linting errors
     """
     # Normalize the path
     file_path = _normalize_path(workspace, path)
@@ -184,388 +185,306 @@ def overwrite(workspace: str, path: str, content: str) -> Tuple[bool, int, int]:
     # Create directory structure if needed
     _ensure_directory_exists(file_path)
     
+    # Check for linting issues if applicable
+    lint_warnings = None
+    _, file_ext = os.path.splitext(path.lower())
+    
+    # Get supported file extensions for linting
+    supported_extensions = get_supported_file_types()
+    
+    if file_ext in supported_extensions:
+        # We have a linter for this file type
+        logger.info(f"Linting file with extension {file_ext}: {path}")
+        is_valid, lint_output = lint_code(content, path)
+        if not is_valid and lint_output:
+            lint_warnings = lint_output
+    
     # Write the new content
     with open(file_path, 'w', encoding='utf-8') as f:
         f.write(content)
     
-    # Count lines in the new content
+    # Count lines in updated content
     new_lines = _count_lines(content)
+    lines_added = new_lines
+    lines_deleted = old_lines
     
-    # Calculate changes
-    lines_added = max(new_lines - old_lines, 0)
-    lines_deleted = max(old_lines - new_lines, 0)
+    if file_existed:
+        # If file already existed, report difference
+        logger.info(f"Updated file: {path} (+{new_lines},-{old_lines})")
+    else:
+        # If file is new
+        logger.info(f"Created file: {path} (+{new_lines} lines)")
     
-    action = "Updated" if file_existed else "Created"
-    logger.info(f"{action} file: {file_path} (+{lines_added},-{lines_deleted})")
+    # If we have lint warnings, raise an exception with the lint output
+    if lint_warnings:
+        # Build a more informative error message
+        error_msg = [
+            f"File updated successfully, but linting failed for {path}:",
+            "",
+            f"Linting errors:",
+            f"{lint_warnings}",
+            "",
+            "Note: The file has been written despite linting errors.",
+            "Please fix the issues and update the file again."
+        ]
+        raise RuntimeError("\n".join(error_msg))
     
     return True, lines_added, lines_deleted
 
-def _ensure_directory_exists(file_path: str) -> None:
-    """Creates parent directories for a file if they don't exist."""
-    directory = os.path.dirname(file_path)
-    if directory and not os.path.exists(directory):
-        try:
-            os.makedirs(directory, exist_ok=True)
-            logger.info(f"Created directory: {directory}")
-        except Exception as e:
-            logger.error(f"Failed to create directory {directory}: {e}")
-            raise
 
-def _count_lines(content: str) -> int:
-    """Counts the number of lines in a string."""
-    # Handle empty strings and strings without newlines
-    if not content:
-        return 0
-    return content.count('\n') + (0 if content.endswith('\n') else 1)
-
-class PatchOpType(Enum):
-    DELETE = '-'
-    ADD = '+'
-    UNCHANGED = ' '
-    
-
-def _process_delete_section(section_content: str, original_lines: list, operations: list) -> None:
-    """Process a @DELETE section from the diff."""
-    for line in section_content.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-            
-        # Parse the line number and content
-        parts = line.split(":", 1)
-        if len(parts) < 2:
-            raise RuntimeError(f"Invalid line format in DELETE section, missing line content: {line}")
-        
-        try:
-            line_num = int(parts[0]) - 1  # Convert to 0-indexed
-            line_content = parts[1] if len(parts) > 1 else ""
-        except ValueError:
-            raise RuntimeError(f"Invalid line number in DELETE section: {parts[0]}")
-        
-        # Validate line exists in the original content
-        if line_num >= len(original_lines):
-            raise RuntimeError(f"Line {line_num + 1} does not exist in the original content")
-        if original_lines[line_num] != line_content:
-            raise RuntimeError(
-                f"Line mismatch at line {line_num + 1}:\n" +
-                f"Expected: '{line_content}'\n" +
-                f"Actual: '{original_lines[line_num]}'"
-            )
-        
-        # Add delete operation
-        operations.append((PatchOpType.DELETE.value, line_num, line_content))
-
-
-def _process_update_section(section_content: str, original_lines: list, operations: list) -> None:
-    """Process an @UPDATE section from the diff."""
-    # Split into BEFORE and AFTER sections
-    sections = section_content.split("AFTER")
-    if len(sections) != 2 or "BEFORE" not in sections[0]:
-        raise RuntimeError(f"Invalid UPDATE format, must contain 'BEFORE' and 'AFTER' sections:\n{section_content}")
-    
-    before_section = sections[0].replace("BEFORE", "").strip()
-    after_section = sections[1].strip()
-    
-    # Process BEFORE section (lines to delete)
-    before_lines = []
-    if before_section:
-        for line in before_section.split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-                
-            # Parse the line number and content
-            parts = line.split(":", 1)
-            if len(parts) < 2:
-                raise RuntimeError(f"Invalid line format in BEFORE section, missing line content: {line}")
-            
-            try:
-                line_num = int(parts[0]) - 1  # Convert to 0-indexed
-                line_content = parts[1] if len(parts) > 1 else ""
-            except ValueError:
-                raise RuntimeError(f"Invalid line number in BEFORE section: {parts[0]}")
-            
-            before_lines.append((line_num, line_content))
-    
-    # Process AFTER section (lines to add)
-    after_lines = []
-    if after_section:
-        for line in after_section.split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-                
-            # Parse the line number and content
-            parts = line.split(":", 1)
-            if len(parts) < 2:
-                raise RuntimeError(f"Invalid line format in AFTER section, missing line content: {line}")
-            
-            try:
-                line_num = int(parts[0]) - 1  # Convert to 0-indexed
-                line_content = parts[1] if len(parts) > 1 else ""
-            except ValueError:
-                raise RuntimeError(f"Invalid line number in AFTER section: {parts[0]}")
-            
-            after_lines.append((line_num, line_content))
-    
-    # Validate BEFORE lines exist in the original content
-    for line_num, line_content in before_lines:
-        if line_num >= len(original_lines):
-            raise RuntimeError(f"Line {line_num + 1} does not exist in the original content")
-        if original_lines[line_num] != line_content:
-            raise RuntimeError(
-                f"Line mismatch at line {line_num + 1}:\n" +
-                f"Expected: '{line_content}'\n" +
-                f"Actual: '{original_lines[line_num]}'"
-            )
-        
-        # Add delete operation
-        operations.append((PatchOpType.DELETE.value, line_num, line_content))
-    
-    # Add the AFTER lines
-    for i, (line_num, line_content) in enumerate(after_lines):
-        operations.append((PatchOpType.ADD.value, line_num, line_content))
-
-
-def _process_insert_section(section_content: str, operations: list) -> None:
-    """Process an @INSERT section from the diff."""
-    for line in section_content.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-            
-        # Parse the line number and content
-        parts = line.split(":", 1)
-        if len(parts) < 2:
-            raise RuntimeError(f"Invalid line format in INSERT section, missing line content: {line}")
-        
-        try:
-            line_num = int(parts[0]) - 1  # Convert to 0-indexed
-            line_content = parts[1] if len(parts) > 1 else ""
-        except ValueError:
-            raise RuntimeError(f"Invalid line number in INSERT section: {parts[0]}")
-        
-        # Add insert operation
-        operations.append((PatchOpType.ADD.value, line_num, line_content))
-
-
-def patch(path: str, diff_text: str) -> str:
+def patch(file_path: str, diff_text: str) -> str:
     """
-    Apply a diff to update file content using the structured format.
-    
-    The diff format uses sections marked with:
-    - @DELETE - For lines to be deleted
-    - @UPDATE - For lines to be updated, with BEFORE and AFTER subsections
-    - @INSERT - For lines to be inserted
-    
-    For example:
-    @DELETE
-    2:xyz
-    3:basdf
-
-    @UPDATE
-    BEFORE
-    5:asdf
-    6:asdf
-    AFTER
-    5:asfdwe
-    6:asdgqwe
-    7:werlkjlb
-
-    @INSERT
-    10:asldkfjalkj
-    11:aslkdj
+    Apply a diff to update a file.
     
     Args:
-        path: File to update
-        diff_text: Diff to apply in the specified format
+        file_path: Path to the file that needs to be updated
+        diff_text: The diff containing @DELETE, @INSERT, and/or @UPDATE directives
         
     Returns:
-        Updated content after applying the diff
+        Updated file content as a string
         
     Raises:
-        RuntimeError: If the diff cannot be applied for any reason
+        RuntimeError: If the diff could not be applied
     """
+    logger.info(f"Applying diff to file: {file_path}")
+    
+    # Read the current content of the file
+    if not os.path.exists(file_path):
+        raise RuntimeError(f"File not found: {file_path}")
+    
     try:
-        # Read the original file content
-        with open(path, 'r', encoding='utf-8') as f:
-            content = f.read()
-    except FileNotFoundError:
-        # The file doesn't exist, so the patch can't be applied
-        raise RuntimeError(f"File {path} not found")
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.read().split('\n')
     except Exception as e:
-        raise RuntimeError(f"Error reading file {path}: {str(e)}")
+        raise RuntimeError(f"Error reading file: {e}")
     
-    # Split into lines for processing
-    original_lines = content.split("\n")
-    # If the file ends with a newline, the split will create an empty element at the end
-    # Remove it to simplify processing
-    if original_lines and original_lines[-1] == "":
-        original_lines.pop()
+    # Parse the diff
+    current_op = None
+    current_section = None
+    pending_updates = []
     
-    try:
-        # Parse the diff sections
-        operations = []
+    # Sections for the current UPDATE operation
+    before_lines = []
+    after_lines = []
+    
+    # Helper function to process a line with line_number:content format
+    def parse_line_entry(line):
+        match = re.match(r'^(\d+):(.*)$', line)
+        if not match:
+            raise RuntimeError(f"Invalid line format in diff: '{line}'. Expected format: LINE_NUMBER:CONTENT")
+        line_num = int(match.group(1)) - 1  # Convert to 0-indexed
+        content = match.group(2)
+        return line_num, content
+    
+    # Process each line of the diff
+    for line in diff_text.strip().split('\n'):
+        line = line.strip()
         
-        # Split the diff text into sections by finding section markers
-        sections = []
-        current_section = ""
-        current_type = None
+        # Skip empty lines and comment lines
+        if not line or line.startswith('#'):
+            continue
         
-        for line in diff_text.splitlines():
-            if line.startswith("@DELETE"):
-                if current_type:
-                    sections.append((current_type, current_section))
-                current_type = "DELETE"
-                current_section = ""
-            elif line.startswith("@UPDATE"):
-                if current_type:
-                    sections.append((current_type, current_section))
-                current_type = "UPDATE"
-                current_section = ""
-            elif line.startswith("@INSERT"):
-                if current_type:
-                    sections.append((current_type, current_section))
-                current_type = "INSERT"
-                current_section = ""
-            else:
-                current_section += line + "\n"
+        # Check for operation directives
+        if line == '@DELETE':
+            # Finalize any in-progress UPDATE operations
+            if current_op == '@UPDATE' and before_lines and after_lines:
+                pending_updates.append(('@UPDATE', before_lines, after_lines))
+                before_lines = []
+                after_lines = []
+            
+            current_op = '@DELETE'
+            current_section = None
+            continue
         
-        if current_type and current_section:
-            sections.append((current_type, current_section))
+        if line == '@INSERT':
+            # Finalize any in-progress UPDATE operations
+            if current_op == '@UPDATE' and before_lines and after_lines:
+                pending_updates.append(('@UPDATE', before_lines, after_lines))
+                before_lines = []
+                after_lines = []
+            
+            current_op = '@INSERT'
+            current_section = None
+            continue
         
-        # Process each section based on its type
-        for section_type, section_content in sections:
-            section_content = section_content.strip()
-            if not section_content:
+        if line == '@UPDATE':
+            # Finalize any in-progress UPDATE operations
+            if current_op == '@UPDATE' and before_lines and after_lines:
+                pending_updates.append(('@UPDATE', before_lines, after_lines))
+                before_lines = []
+                after_lines = []
+            
+            current_op = '@UPDATE'
+            current_section = None
+            continue
+        
+        # Process UPDATE sections
+        if current_op == '@UPDATE':
+            if line == 'BEFORE':
+                current_section = 'BEFORE'
                 continue
+            elif line == 'AFTER':
+                current_section = 'AFTER'
+                continue
+            
+            # Process content in BEFORE/AFTER sections
+            if current_section == 'BEFORE':
+                try:
+                    line_num, content = parse_line_entry(line)
+                    before_lines.append((line_num, content))
+                except RuntimeError as e:
+                    raise RuntimeError(f"Error in BEFORE section: {e}")
+            elif current_section == 'AFTER':
+                try:
+                    line_num, content = parse_line_entry(line)
+                    after_lines.append((line_num, content))
+                except RuntimeError as e:
+                    raise RuntimeError(f"Error in AFTER section: {e}")
+            else:
+                raise RuntimeError(f"Missing BEFORE/AFTER section in @UPDATE operation")
+        
+        # Process DELETE and INSERT operations
+        elif current_op == '@DELETE':
+            try:
+                line_num, content = parse_line_entry(line)
+                pending_updates.append(('@DELETE', [(line_num, content)], None))
+            except RuntimeError as e:
+                raise RuntimeError(f"Error in DELETE operation: {e}")
                 
-            if section_type == "DELETE":
-                _process_delete_section(section_content, original_lines, operations)
-            elif section_type == "UPDATE":
-                _process_update_section(section_content, original_lines, operations)
-            elif section_type == "INSERT":
-                _process_insert_section(section_content, operations)
-            else:
-                raise RuntimeError(f"Unknown section type: {section_type}")
-        
-        # Sort operations by line number in reverse order
-        # This ensures we modify from bottom to top to avoid line number shifting
-        # For INSERT operations at the same position, maintain their order from the diff
-        # DELETE always comes before INSERT at the same position
-        def op_sort_key(operation):
-            op, line_num, _ = operation
-            # Sort by negative line number for reverse order (bottom to top)
-            # Secondary sort: DELETE operations (0) before INSERT operations (1)
-            return (-line_num, 0 if op == PatchOpType.DELETE.value else 1)
-            
-        operations.sort(key=op_sort_key)
-        
-        # Apply the operations to create the updated content
-        updated_lines = original_lines.copy()
-        for op, line_num, line_content in operations:
-            if op == PatchOpType.DELETE.value:
-                # Remove the line at the specified position
-                if 0 <= line_num < len(updated_lines):
-                    updated_lines.pop(line_num)
-            elif op == PatchOpType.ADD.value:
-                # Insert a new line at the specified position
-                # Note: this handles both insertion and append correctly
-                if 0 <= line_num <= len(updated_lines):
-                    updated_lines.insert(line_num, line_content)
-                else:
-                    # If position is beyond end of file, just append
-                    updated_lines.append(line_content)
-        
-        # Combine the updated lines into the result
-        # Add a trailing newline to match standard text file format
-        updated_content = "\n".join(updated_lines) + "\n"
-        return updated_content
-    except Exception as e:
-        # Prepare the error message
-        error_msg = f"Error applying patch to {path}: {str(e)}"
-        raise RuntimeError(error_msg)
-        
-        # Prepare error message with context
-        error_msg = str(e)
-        
-        # If we have a specific line number, include relevant context around it
-        if error_line_num and error_line_num <= len(original_lines):
-            # Show 10 lines before and after the error
-            start_line = max(0, error_line_num - 11)  # -11 because error_line_num is 1-indexed
-            end_line = min(len(original_lines), error_line_num + 10)
-            
-            # Create content chunk with line numbers
-            context_lines = []
-            for i in range(start_line, end_line):
-                line_marker = ">" if i == error_line_num - 1 else " "
-                context_lines.append(f"{line_marker}{i+1:4d}: {original_lines[i]}")
-            
-            error_context = "\n".join(context_lines)
-            error_msg = f"{error_msg}\n\nRelevant file content:\n{error_context}"
+        elif current_op == '@INSERT':
+            try:
+                line_num, content = parse_line_entry(line)
+                pending_updates.append(('@INSERT', [(line_num, content)], None))
+            except RuntimeError as e:
+                raise RuntimeError(f"Error in INSERT operation: {e}")
+                
         else:
-            # No specific line, include the entire file if it's not too large
-            if len(original_lines) <= 100:  # Only include full content for reasonably-sized files
-                file_content = "\n".join([f"{i+1:4d}: {line}" for i, line in enumerate(original_lines)])
-                error_msg = f"{error_msg}\n\nFile content:\n{file_content}"
-            else:
-                # File too large, just indicate size
-                error_msg = f"{error_msg}\n\nFile is large ({len(original_lines)} lines) - showing first 50 lines:\n"
-                file_preview = "\n".join([f"{i+1:4d}: {line}" for i, line in enumerate(original_lines[:50])])
-                error_msg = f"{error_msg}{file_preview}\n..."
-        
-        # Include the diff in the error message
-        error_msg = f"{error_msg}\n\nDiff that failed to apply:\n{diff_text}"
-        raise RuntimeError(error_msg)
-    except Exception as e:
-        # For other exceptions, include full file content if not too large
-        error_msg = f"Error applying patch to {path}: {str(e)}"
-        
-        if len(original_lines) <= 100:  # Only include full content for reasonably-sized files
-            file_content = "\n".join([f"{i+1:4d}: {line}" for i, line in enumerate(original_lines)])
-            error_msg = f"{error_msg}\n\nFile content:\n{file_content}"
-        else:
-            # File too large, just indicate size
-            error_msg = f"{error_msg}\n\nFile is large ({len(original_lines)} lines) - showing first 50 lines:\n"
-            file_preview = "\n".join([f"{i+1:4d}: {line}" for i, line in enumerate(original_lines[:50])])
-            error_msg = f"{error_msg}{file_preview}\n..."
+            raise RuntimeError(f"Unexpected line in diff: '{line}'. Must be preceded by @DELETE, @UPDATE, or @INSERT")
+    
+    # Finalize the last UPDATE operation if there is one
+    if current_op == '@UPDATE' and before_lines and after_lines:
+        pending_updates.append(('@UPDATE', before_lines, after_lines))
+        before_lines = []
+        after_lines = []
+    
+    # Validate that we have a non-empty list of updates
+    if not pending_updates:
+        raise RuntimeError("No valid diff operations found")
+    
+    # Apply the updates
+    # We need to apply them in the correct order (those affecting earlier lines first)
+    # Sort by the first line number in each operation
+    pending_updates.sort(key=lambda x: x[1][0][0] if x[1] else 0)
+    
+    # Keep track of line number adjustments as we apply updates
+    line_offset = 0
+    
+    for op, before, after in pending_updates:
+        if op == '@DELETE':
+            # Delete a line
+            line_num = before[0][0] + line_offset
+            expected_content = before[0][1]
             
-        # Include the diff in the error message
-        error_msg = f"{error_msg}\n\nDiff that failed to apply:\n{diff_text}"
-        raise RuntimeError(error_msg)
+            # Check if line number is valid
+            if line_num < 0 or line_num >= len(lines):
+                raise RuntimeError(f"Line number {line_num + 1} out of range (file has {len(lines)} lines)")
+            
+            # Verify the line content matches what's expected
+            if lines[line_num] != expected_content:
+                raise RuntimeError(
+                    f"Content mismatch for line {line_num + 1}:\n"
+                    f"Expected: '{expected_content}'\n"
+                    f"Actual: '{lines[line_num]}'"
+                )
+            
+            # Delete the line
+            lines.pop(line_num)
+            line_offset -= 1  # Adjust offset for subsequent operations
+            
+        elif op == '@INSERT':
+            # Insert a line
+            line_num = before[0][0] + line_offset
+            content = before[0][1]
+            
+            # Check if line number is valid (can insert at end of file)
+            if line_num < 0 or line_num > len(lines):
+                raise RuntimeError(f"Insert position {line_num + 1} out of range (file has {len(lines)} lines)")
+            
+            # Insert the line
+            lines.insert(line_num, content)
+            line_offset += 1  # Adjust offset for subsequent operations
+            
+        elif op == '@UPDATE':
+            # Update a section
+            # First, verify the BEFORE section matches
+            start_line = before[0][0] + line_offset
+            
+            # Check if the starting line is valid
+            if start_line < 0 or start_line >= len(lines):
+                raise RuntimeError(f"Update start line {start_line + 1} out of range (file has {len(lines)} lines)")
+            
+            # Check each BEFORE line matches the file
+            for i, (line_num, expected_content) in enumerate(before):
+                adjusted_line_num = line_num + line_offset
+                
+                # Check if line number is valid
+                if adjusted_line_num < 0 or adjusted_line_num >= len(lines):
+                    raise RuntimeError(f"Line number {adjusted_line_num + 1} out of range (file has {len(lines)} lines)")
+                
+                # Verify the line content matches what's expected
+                if lines[adjusted_line_num] != expected_content:
+                    raise RuntimeError(
+                        f"Content mismatch for line {adjusted_line_num + 1}:\n"
+                        f"Expected: '{expected_content}'\n"
+                        f"Actual: '{lines[adjusted_line_num]}'"
+                    )
+            
+            # Replace the BEFORE lines with AFTER lines
+            # First, calculate how many lines to remove
+            before_count = len(before)
+            after_count = len(after)
+            
+            # Remove the BEFORE lines
+            for _ in range(before_count):
+                lines.pop(start_line)
+            
+            # Insert the AFTER lines
+            for i, (line_num, content) in enumerate(after):
+                lines.insert(start_line + i, content)
+            
+            # Adjust line offset for subsequent operations
+            line_offset += (after_count - before_count)
+    
+    # Return the updated content
+    return '\n'.join(lines)
+
+
+def _count_lines(content: str) -> int:
+    """Count the number of lines in the content."""
+    if not content:
+        return 0
+    # Count the number of newlines, and add 1 if the content doesn't end with a newline
+    return content.count('\n') + (0 if content.endswith('\n') else 1)
 
 
 def _normalize_path(workspace: str, path: str) -> str:
+    """Normalize a path relative to the workspace."""
+    # If path is absolute, use it directly (after normalization)
+    if os.path.isabs(path):
+        return os.path.normpath(path)
+    
+    # Otherwise, join with workspace
+    return os.path.normpath(os.path.join(workspace, path))
+
+
+def _ensure_directory_exists(file_path: str) -> None:
     """
-    Normalizes a path to ensure it's relative to the workspace.
+    Ensure the directory for a file exists, creating it if necessary.
     
     Args:
-        workspace: Root workspace directory path
-        path: Path provided by the user or LLM
-        
-    Returns:
-        Normalized absolute path within the workspace
-        
-    Notes:
-        - Handles both absolute and relative paths
-        - Ensures the path is within the workspace for security
-        - Prevents directory traversal attacks
+        file_path: Path to the file
     """
-    # Handle absolute paths
-    if os.path.isabs(path):
-        # For absolute paths, use the path directly if it's within the workspace
-        # otherwise use the basename
-        if path.startswith(workspace):
-            return path
-        else:
-            logger.info(f"Converting absolute path to workspace-relative: {path}")
-            # Just use the basename to avoid path issues
-            return os.path.join(workspace, os.path.basename(path))
-    
-    # Handle directory traversal attempts
-    if '..' in os.path.normpath(path).split(os.sep):
-        logger.warning(f"Attempted directory traversal attack: {path}")
-        return os.path.join(workspace, os.path.basename(path))
-    
-    # Standard case: relative path within the workspace
-    return os.path.join(workspace, path)
+    directory = os.path.dirname(file_path)
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)
+        logger.info(f"Created directory: {directory}")

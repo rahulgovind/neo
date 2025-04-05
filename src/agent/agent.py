@@ -7,7 +7,8 @@ import json
 import os.path
 import os
 import logging
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 
 from src.core.context import Context
 from src.core.messages import Message, TextBlock
@@ -112,6 +113,39 @@ class Agent:
         # Get available commands
         self._command_names = self.ctx.shell.list_commands()
         logger.info(f"Agent initialized with {len(self._command_names)} available commands: {', '.join(self._command_names)}")
+        
+        # Path to chat log file
+        self.chat_log_file = os.path.join(self.ctx.internal_session_dir, "chat.log")
+        
+        # Log agent initialization
+        self._log_to_chat("SYSTEM: Neo initialized and ready to assist.", is_init=True)
+    
+    def _log_to_chat(self, message: str, is_init: Optional[bool] = False) -> None:
+        """
+        Log a message to the chat log file.
+        
+        Args:
+            message: The message to log
+            is_init: Whether this is an initialization message (to optionally add header info)
+        """
+        try:
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(self.chat_log_file), exist_ok=True)
+            
+            # Get current timestamp
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Open in append mode
+            with open(self.chat_log_file, 'a', encoding='utf-8') as f:
+                # For first entry, add header
+                if is_init and not os.path.exists(self.chat_log_file) or os.path.getsize(self.chat_log_file) == 0:
+                    f.write(f"=== Neo Chat Log - Started: {timestamp} ===\n\n")
+                
+                # Write message with timestamp
+                f.write(f"[{timestamp}] {message}\n\n")
+                
+        except Exception as e:
+            logger.error(f"Error writing to chat log: {e}")
     
     def process(self, user_message: str) -> str:
         """
@@ -123,6 +157,10 @@ class Agent:
         logger.info("Processing user message")
         
         try:
+            # Log user message
+            self._log_to_chat(f"USER: {user_message}")
+            
+            # Add message to state
             self.state.messages.append(Message(role="user", content=[TextBlock(user_message)]))
             
             # Process messages, handling any command calls
@@ -144,6 +182,27 @@ class Agent:
             logger.error(f"Error processing user message: {e}")
             # Provide a user-friendly error message
             return "I encountered an error processing your request. Please try again or rephrase your message."
+    
+    def _save_state(self) -> None:
+        """
+        Save the current agent state to the state file.
+        
+        This ensures that conversations can be resumed between sessions.
+        """
+        try:
+            # Convert state to dictionary
+            state_data = self.state.to_dict()
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+            
+            # Write to file (with pretty printing for readability)
+            with open(self.state_file, 'w') as f:
+                json.dump(state_data, f, indent=2)
+            
+            logger.info(f"Saved agent state to {self.state_file}")
+        except Exception as e:
+            logger.error(f"Error saving agent state: {e}")
     
     def _prune_state(self) -> None:
         """
@@ -187,6 +246,10 @@ class Agent:
             
             # Add the response to state
             self.state.messages.append(current_response)
+            
+            # Log assistant message
+            self._log_to_chat(f"NEO: {current_response.text()}")
+            
             self._prune_state()
 
             # Extract command calls from the last message
@@ -196,18 +259,14 @@ class Agent:
             command_calls = current_response.get_command_calls()
             # Process commands manually using the shell
             command_results = self.ctx.shell.process_commands(command_calls)
+            
+            # Log command results
+            for result in command_results:
+                self._log_to_chat(f"SYSTEM: {result.text}")
+            
             # Create a single user message with all results
             result_message = Message(
                 role="user",
                 content=command_results
             )
             self.state.messages.append(result_message)
-
-    def _save_state(self):
-        """Save the current agent state to a file."""
-        try:
-            with open(self.state_file, 'w') as f:
-                json.dump(self.state.to_dict(), f)
-            logger.info(f"Saved agent state to {self.state_file}")
-        except Exception as e:
-            logger.error(f"Error saving agent state: {e}")
