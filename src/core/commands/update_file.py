@@ -197,7 +197,8 @@ class UpdateFileCommand(Command):
                 f"Here is the current content of the file:\n\n{escaped_file_content}\n\n" + \
                 f"First, quote the exact original error message as shown above. Then identify and show the exact relevant portions of the file related to this error, " + \
                 f"including their line numbers. After that, make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content. " + \
-                f"Once done, say <Successfully updated file> if you were successful, else say that you failed to update the file."
+                f"Once done, say <Successfully updated file> if you were successful, else say that you failed to update the file." + \
+                f" You MUST always write the file in its entirety. DO NOT write partial contents."
             )
             
             # Create messages
