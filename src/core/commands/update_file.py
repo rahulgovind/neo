@@ -52,6 +52,9 @@ class UpdateFileCommand(Command):
                 <line_number>:<content>
                 
                 Important rules:
+                - Diff chunks are applied in sequence from top to bottom
+                - Diff chunks modifying earlier lines in the file should appear earlier in the sequence
+                - Each new section starts with @DELETE, @UPDATE, or @INSERT
                 - @DELETE sections specify lines to be removed from the file
                 - @UPDATE sections must contain both BEFORE and AFTER subsections
                 - @INSERT sections specify new lines to be added at the specified positions
@@ -135,7 +138,7 @@ class UpdateFileCommand(Command):
                 2:    # Function implementation
                 3:    return True
                 
-                # Example 4: Complex example with all operations
+                # Example 4: Complex example with all operations (applied in sequence)
                 # Original file (config.js):
                 1:// Configuration file
                 2:const config = {
@@ -148,10 +151,11 @@ class UpdateFileCommand(Command):
                 9:// Export configuration
                 10:module.exports = config;
                 
-                ▶update_file config.js｜Update configuration settings
-                @DELETE
-                9:// Export configuration
+                ▶update_file config.js｜Update configuration settings - applied in sequence
+                # The following diff chunks are applied in sequence from top to bottom
+                # Chunks modifying earlier lines should appear earlier in the sequence
                 
+                # First operation: Update the host and port (lines 3-4)
                 @UPDATE
                 BEFORE
                 3:    host: 'localhost',
@@ -160,10 +164,16 @@ class UpdateFileCommand(Command):
                 3:    host: 'production.example.com',
                 4:    port: 443,
                 
+                # Second operation: Insert secure settings (lines 7-8)
                 @INSERT
                 7:    secure: true,
                 8:    retryCount: 3,
                 
+                # Third operation: Delete the export comment (line 9)
+                @DELETE
+                9:// Export configuration
+                
+                # Fourth operation: Update the export statement (line 10+)
                 @UPDATE
                 BEFORE
                 10:module.exports = config;
@@ -178,7 +188,7 @@ class UpdateFileCommand(Command):
                 ■
                 ✅File updated successfully■
                 
-                # Updated file (config.js):
+                # Final file (config.js) after all sequential operations:
                 1:// Configuration file
                 2:const config = {
                 3:    host: 'production.example.com',
