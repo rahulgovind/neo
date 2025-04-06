@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class NeoFindCommand(Command):
     """
     Command for finding files and directories based on name and type using neofind.
-    
+
     Features:
     - Delegates to the find command for efficient file searching
     - Supports filtering by name pattern
@@ -35,15 +35,18 @@ class NeoFindCommand(Command):
         """
         return CommandTemplate(
             name="neofind",
-            description=textwrap.dedent("""
+            description=textwrap.dedent(
+                """
                 Find files and directories matching the specified criteria.
                 
                 The find command searches for files and directories in PATH based on name patterns
                 and file type filters.
                 
                 PATH is a directory to start searching from (relative to workspace).
-                """),
-            examples=textwrap.dedent("""
+                """
+            ),
+            examples=textwrap.dedent(
+                """
                 ▶find src --name "*.py"■
                 ✅src/core/command.py
                 src/core/commands/grep.py
@@ -57,13 +60,14 @@ class NeoFindCommand(Command):
                 ✅/tmp/cache
                 /tmp/logs
                 /tmp/uploads■
-                """),
+                """
+            ),
             parameters=[
                 CommandParameter(
                     name="path",
                     description="Path to search in (relative to workspace).",
                     required=True,
-                    is_positional=True
+                    is_positional=True,
                 ),
                 CommandParameter(
                     name="name",
@@ -72,7 +76,7 @@ class NeoFindCommand(Command):
                     default=None,
                     is_flag=True,
                     long_flag="name",
-                    short_flag="n"
+                    short_flag="n",
                 ),
                 CommandParameter(
                     name="type",
@@ -81,32 +85,32 @@ class NeoFindCommand(Command):
                     default=None,
                     is_flag=True,
                     long_flag="type",
-                    short_flag="t"
-                )
+                    short_flag="t",
+                ),
             ],
-            requires_data=False
+            requires_data=False,
         )
-    
+
     def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> str:
         """
         Process the command with the parsed arguments and optional data.
-        
+
         Args:
             ctx: Application context
             args: Dictionary of parameter names to their values
             data: Optional data string (not used)
-            
+
         Returns:
             Find command results, or error message
         """
         # Get the workspace from the context
         workspace = ctx.workspace
-        
+
         path = args.get("path")
         if not path:
             logger.error("Path not provided to find command")
             raise RuntimeError("Path argument is required")
-        
+
         # Normalize the path to be relative to the workspace
         if not os.path.isabs(path):
             search_path = os.path.join(workspace, path)
@@ -115,24 +119,26 @@ class NeoFindCommand(Command):
             if not path.startswith(workspace):
                 raise RuntimeError(f"Path must be within the workspace: {workspace}")
             search_path = path
-        
+
         # Build the find command
         find_cmd = ["find", search_path]
-        
+
         # Add type filter if provided
         file_type = args.get("type")
         if file_type:
-            if file_type not in ['f', 'd']:
+            if file_type not in ["f", "d"]:
                 raise RuntimeError("Type must be 'f' for files or 'd' for directories")
             logger.debug(f"Adding type filter (-type {file_type}) to find command")
             find_cmd.extend(["-type", file_type])
-        
+
         # Add name pattern if provided
         name_pattern = args.get("name")
         if name_pattern:
-            logger.debug(f"Adding name pattern filter (-name {name_pattern}) to find command")
+            logger.debug(
+                f"Adding name pattern filter (-name {name_pattern}) to find command"
+            )
             find_cmd.extend(["-name", name_pattern])
-        
+
         try:
             # Execute find command
             logger.debug(f"Executing find command: {' '.join(find_cmd)}")
@@ -141,12 +147,16 @@ class NeoFindCommand(Command):
                 capture_output=True,
                 text=True,
                 check=False,
-                cwd=workspace  # Ensure find runs in the workspace directory
+                cwd=workspace,  # Ensure find runs in the workspace directory
             )
             logger.debug(f"Find command return code: {process.returncode}")
-            logger.debug(f"Find command stdout: {process.stdout[:200] if process.stdout else ''}")
-            logger.debug(f"Find command stderr: {process.stderr[:200] if process.stderr else ''}")
-            
+            logger.debug(
+                f"Find command stdout: {process.stdout[:200] if process.stdout else ''}"
+            )
+            logger.debug(
+                f"Find command stderr: {process.stderr[:200] if process.stderr else ''}"
+            )
+
             # Check if we have results
             if process.returncode == 0:
                 if not process.stdout.strip():
@@ -154,9 +164,11 @@ class NeoFindCommand(Command):
                 return process.stdout.strip()
             else:
                 # Error occurred
-                logger.error(f"Find command failed with return code {process.returncode}: {process.stderr}")
+                logger.error(
+                    f"Find command failed with return code {process.returncode}: {process.stderr}"
+                )
                 raise RuntimeError(f"Find failed: {process.stderr}")
-        
+
         except Exception as e:
             logger.error(f"Error executing find command: {str(e)}")
             raise RuntimeError(f"Error executing find: {str(e)}")

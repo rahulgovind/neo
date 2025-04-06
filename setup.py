@@ -9,22 +9,22 @@ with open("VERSION", "r") as f:
 with open("requirements.txt", "r") as f:
     # Filter out comments and empty lines
     requirements = [
-        line.strip() 
-        for line in f.readlines() 
+        line.strip()
+        for line in f.readlines()
         if line.strip() and not line.startswith("#")
     ]
 
 # Read development requirements
 dev_requirements = [
-    req for req in requirements 
-    if any(dev_tool in req for dev_tool in ["pytest", "black", "isort", "mypy", "pylint"])
+    req
+    for req in requirements
+    if any(
+        dev_tool in req for dev_tool in ["pytest", "black", "isort", "mypy", "pylint"]
+    )
 ]
 
 # Core requirements (excluding dev requirements)
-core_requirements = [
-    req for req in requirements
-    if req not in dev_requirements
-]
+core_requirements = [req for req in requirements if req not in dev_requirements]
 
 setup(
     name="neo",

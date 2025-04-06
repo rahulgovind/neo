@@ -24,11 +24,8 @@ logging.basicConfig(
     handlers=[
         logging.StreamHandler(),
         # Add file handler if LOG_FILE is specified
-        *(
-            [logging.FileHandler(log_file)] 
-            if log_file else []
-        )
-    ]
+        *([logging.FileHandler(log_file)] if log_file else []),
+    ],
 )
 
 # Set conservative default levels for noisy libraries

@@ -16,28 +16,26 @@ from src.core.messages import Message, TextBlock
 # Configure logging
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class AgentState:
     messages: List[Message]
-    
+
     def to_dict(self):
         """Convert AgentState to a dictionary for serialization."""
-        return {
-            "messages": [message.to_dict() for message in self.messages]
-        }
-    
+        return {"messages": [message.to_dict() for message in self.messages]}
+
     @classmethod
     def from_dict(cls, data):
         """Create AgentState from a dictionary."""
-        return cls(
-            messages=[Message.from_dict(msg) for msg in data["messages"]]
-        )
+        return cls(messages=[Message.from_dict(msg) for msg in data["messages"]])
+
 
 class Agent:
     """
     Agent orchestrates conversations with an LLM and handles command invocations.
     """
-    
+
     # Default system instructions for the agent
     DEFAULT_INSTRUCTIONS_TEMPLATE = """
     You are Neo, an AI assistant that can help with a wide range of tasks.
@@ -55,29 +53,31 @@ class Agent:
     
     Be helpful, accurate, and respectful in your interactions.
     """
-    
+
     def __init__(self, ctx: Context):
         # Start with the default instructions
-        instructions = self.DEFAULT_INSTRUCTIONS_TEMPLATE.format(workspace=ctx.workspace)
-        
+        instructions = self.DEFAULT_INSTRUCTIONS_TEMPLATE.format(
+            workspace=ctx.workspace
+        )
+
         # Check if .neorules exists in the workspace directory
-        neorules_path = os.path.join(ctx.workspace, '.neorules')
+        neorules_path = os.path.join(ctx.workspace, ".neorules")
         if os.path.exists(neorules_path) and os.path.isfile(neorules_path):
             try:
                 # Read the .neorules file
-                with open(neorules_path, 'r') as f:
+                with open(neorules_path, "r") as f:
                     neorules_content = f.read().strip()
-                
+
                 # Append the content to the instructions if not empty
                 if neorules_content:
                     instructions = f"{instructions}\n\nCustom rules from .neorules:\n{neorules_content}"
                     logger.info(f"Loaded custom rules from {neorules_path}")
             except Exception as e:
                 logger.error(f"Error reading .neorules file: {e}")
-        
+
         self._instructions = instructions
         self.ctx = ctx
-        
+
         # Ensure session directory exists
         try:
             session_dir = self.ctx.internal_session_dir
@@ -88,17 +88,17 @@ class Agent:
         except Exception as e:
             logger.error(f"Error creating session directory: {e}")
             # If directory creation fails, use a fallback temporary location
-            session_dir = os.path.join(os.path.expanduser('~'), '.neo', 'temp')
+            session_dir = os.path.join(os.path.expanduser("~"), ".neo", "temp")
             if not os.path.exists(session_dir):
                 os.makedirs(session_dir, exist_ok=True)
-        
+
         # Path to state file
         self.state_file = os.path.join(session_dir, "agent_state.json")
-        
+
         # Try to load state from file if it exists
         if os.path.exists(self.state_file):
             try:
-                with open(self.state_file, 'r') as f:
+                with open(self.state_file, "r") as f:
                     state_data = json.load(f)
                 self.state = AgentState.from_dict(state_data)
                 logger.info(f"Loaded agent state from {self.state_file}")
@@ -109,21 +109,23 @@ class Agent:
         else:
             # Initialize with empty state if no state file exists
             self.state = AgentState(messages=[])
-        
+
         # Get available commands
         self._command_names = self.ctx.shell.list_commands()
-        logger.info(f"Agent initialized with {len(self._command_names)} available commands: {', '.join(self._command_names)}")
-        
+        logger.info(
+            f"Agent initialized with {len(self._command_names)} available commands: {', '.join(self._command_names)}"
+        )
+
         # Path to chat log file
         self.chat_log_file = os.path.join(self.ctx.internal_session_dir, "chat.log")
-        
+
         # Log agent initialization
         self._log_to_chat("SYSTEM: Neo initialized and ready to assist.", is_init=True)
-    
+
     def _log_to_chat(self, message: str, is_init: Optional[bool] = False) -> None:
         """
         Log a message to the chat log file.
-        
+
         Args:
             message: The message to log
             is_init: Whether this is an initialization message (to optionally add header info)
@@ -131,87 +133,95 @@ class Agent:
         try:
             # Create directory if it doesn't exist
             os.makedirs(os.path.dirname(self.chat_log_file), exist_ok=True)
-            
+
             # Get current timestamp
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
+
             # Open in append mode
-            with open(self.chat_log_file, 'a', encoding='utf-8') as f:
+            with open(self.chat_log_file, "a", encoding="utf-8") as f:
                 # For first entry, add header
-                if is_init and not os.path.exists(self.chat_log_file) or os.path.getsize(self.chat_log_file) == 0:
+                if (
+                    is_init
+                    and not os.path.exists(self.chat_log_file)
+                    or os.path.getsize(self.chat_log_file) == 0
+                ):
                     f.write(f"=== Neo Chat Log - Started: {timestamp} ===\n\n")
-                
+
                 # Write message with timestamp
                 f.write(f"[{timestamp}] {message}\n\n")
-                
+
         except Exception as e:
             logger.error(f"Error writing to chat log: {e}")
-    
+
     def process(self, user_message: str) -> str:
         """
         Process a user message and generate a response.
-        
+
         Returns:
             Text response from the assistant (excluding command calls)
         """
         logger.info("Processing user message")
-        
+
         try:
             # Log user message
             self._log_to_chat(f"USER: {user_message}")
-            
+
             # Add message to state
-            self.state.messages.append(Message(role="user", content=[TextBlock(user_message)]))
-            
+            self.state.messages.append(
+                Message(role="user", content=[TextBlock(user_message)])
+            )
+
             # Process messages, handling any command calls
             self._process()
-            
+
             # Save the updated state
             self._save_state()
-            
+
             # Get the final response (should be the last message from the assistant)
             final_response = self.state.messages[-1]
             if final_response.role != "assistant":
                 logger.warning("Last message in state is not from assistant")
                 return "I had an issue processing your request. Please try again."
-                
+
             logger.info("User message processed successfully")
             return final_response.text()
-            
+
         except Exception as e:
             logger.error(f"Error processing user message: {e}")
             # Provide a user-friendly error message
             return "I encountered an error processing your request. Please try again or rephrase your message."
-    
+
     def _save_state(self) -> None:
         """
         Save the current agent state to the state file.
-        
+
         This ensures that conversations can be resumed between sessions.
         """
         try:
             # Convert state to dictionary
             state_data = self.state.to_dict()
-            
+
             # Ensure directory exists
             os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
-            
+
             # Write to file (with pretty printing for readability)
-            with open(self.state_file, 'w') as f:
+            with open(self.state_file, "w") as f:
                 json.dump(state_data, f, indent=2)
-            
+
             logger.info(f"Saved agent state to {self.state_file}")
         except Exception as e:
             logger.error(f"Error saving agent state: {e}")
-    
+
     def _prune_state(self) -> None:
         """
         Prune the state by removing old messages.
-        
+
         This method ensures that the state does not grow indefinitely.
         """
         # Only expected to be called when last message is from assistant
-        assert self.state.messages[-1].role == "assistant", f"Expected last message to be from assistant, got {self.state.messages[-1].role}"
+        assert (
+            self.state.messages[-1].role == "assistant"
+        ), f"Expected last message to be from assistant, got {self.state.messages[-1].role}"
 
         # Only trigger if state has more than 15 messages
         if len(self.state.messages) < 100:
@@ -220,36 +230,43 @@ class Agent:
         # Only keep the last 6 messages on pruning
         self.state.messages = self.state.messages[-6:]
         self._save_state()
-    
+
     def _process(self) -> None:
         """
         Process messages and manually handle any command calls.
-        
+
         Executes commands as needed and updates memory after each model processing step.
         """
         # Get the model from the context
         model = self.ctx.model
-        
+
         # Keep processing until last message in state is from assistant and does not have command calls
-        while not (self.state.messages[-1].role == "assistant" and not self.state.messages[-1].has_command_executions()):
+        while not (
+            self.state.messages[-1].role == "assistant"
+            and not self.state.messages[-1].has_command_executions()
+        ):
             # Process the messages with the model (without auto-executing commands)
             messages_to_send = self.state.messages.copy()
-            messages_to_send[-1] = messages_to_send[-1].copy(metadata={"cache-control": True})
+            messages_to_send[-1] = messages_to_send[-1].copy(
+                metadata={"cache-control": True}
+            )
             if len(messages_to_send) >= 3:
-                messages_to_send[-3] = messages_to_send[-3].copy(metadata={"cache-control": True})
+                messages_to_send[-3] = messages_to_send[-3].copy(
+                    metadata={"cache-control": True}
+                )
             current_response = model.process(
                 system=self._instructions,
                 messages=messages_to_send,
                 commands=self._command_names,
-                auto_execute_commands=False
+                auto_execute_commands=False,
             )
-            
+
             # Add the response to state
             self.state.messages.append(current_response)
-            
+
             # Log assistant message
             self._log_to_chat(f"NEO: {current_response.text()}")
-            
+
             self._prune_state()
 
             # Extract command calls from the last message
@@ -259,14 +276,11 @@ class Agent:
             command_calls = current_response.get_command_calls()
             # Process commands manually using the shell
             command_results = self.ctx.shell.process_commands(command_calls)
-            
+
             # Log command results
             for result in command_results:
                 self._log_to_chat(f"SYSTEM: {result.text}")
-            
+
             # Create a single user message with all results
-            result_message = Message(
-                role="user",
-                content=command_results
-            )
+            result_message = Message(role="user", content=command_results)
             self.state.messages.append(result_message)

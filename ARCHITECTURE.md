@@ -67,23 +67,27 @@ Available commands include:
 - `update_file`: Apply changes to files using a structured diff syntax, with model-assisted fallback for complex changes
 - `neogrep` (grep): Search for patterns in files with filtering by file types and support for context lines
 - `neofind` (find): Locate files and directories based on name patterns and file types
-- `bash`: Execute arbitrary shell commands as a fallback for operations not covered by specialized commands
+- `bash`: Execute arbitrary shell commands as a fallback for operations not covered by specialized commands. Maintains 
+  a persistent shell session across command invocations with graceful handling of shell termination and error conditions.
 
 The command architecture follows these design principles:
 - **Command Pattern**: Each command implements:
   - A `template()` method that defines parameters and documentation
-
   - A `process()` method that implements the command's functionality
-#### Agent (src/agent/agent.py)
 - **Consistent Command Interface**: All commands follow a unified model with CLI-like syntax
-
 - **Rich Documentation**: Documentation includes descriptions, parameter details, and interactive examples
-The Agent component orchestrates the interaction between the user, Model, and Functions:
 - **Robust Error Handling**: Commands provide detailed error feedback to users and system components
-
 - **Workspace Awareness**: Commands respect workspace boundaries for security
-[... rest of the content remains the same ...]
 
+#### Agent (src/agent/agent.py)
+
+The Agent component orchestrates the interaction between the user, Model, and Functions:
+
+- Delegates user requests to appropriate components
+- Manages execution flow between user input and LLM responses
+- Handles command execution and result formatting
+- Provides context management for conversations
+- Implements safety measures and execution boundaries
 
 #### Chat (src/apps/chat.py)
 

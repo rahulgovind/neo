@@ -15,17 +15,20 @@ from typing import Optional
 # Default port for the web server
 DEFAULT_PORT = 8888
 
+
 def _get_pid_file_path() -> Path:
     """Get the path to the PID file for the web server."""
     pid_dir = Path(os.path.expanduser("~")) / ".neo" / "web"
     pid_dir.mkdir(parents=True, exist_ok=True)
     return pid_dir / "server.pid"
 
+
 def _get_log_file_path() -> Path:
     """Get the path to the log file for the web server."""
     log_dir = Path(os.path.expanduser("~")) / ".neo" / "web"
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir / "server.log"
+
 
 def _read_pid() -> Optional[int]:
     """Read the PID from the PID file if it exists."""
@@ -39,17 +42,20 @@ def _read_pid() -> Optional[int]:
             return None
     return None
 
+
 def _write_pid(pid: int) -> None:
     """Write the PID to the PID file."""
     pid_file = _get_pid_file_path()
     with open(pid_file, "w") as f:
         f.write(str(pid))
 
+
 def _remove_pid_file() -> None:
     """Remove the PID file."""
     pid_file = _get_pid_file_path()
     if pid_file.exists():
         pid_file.unlink()
+
 
 def _is_process_running(pid: int) -> bool:
     """Check if a process with the given PID is running."""
@@ -60,6 +66,7 @@ def _is_process_running(pid: int) -> bool:
         return True
     except OSError:
         return False
+
 
 def start_server(args: argparse.Namespace) -> None:
     """Start the web server if not already running."""
@@ -91,19 +98,21 @@ def start_server(args: argparse.Namespace) -> None:
                 sys.executable,
                 "-m",
                 "src.apps.web.app",
-                "--host", host,
-                "--port", str(port),
+                "--host",
+                host,
+                "--port",
+                str(port),
                 *(["--debug"] if debug else []),
-                *(["--workspace", workspace] if workspace else [])
+                *(["--workspace", workspace] if workspace else []),
             ],
             stdout=log_file,
             stderr=log_file,
-            start_new_session=True  # Start in a new session to detach from parent
+            start_new_session=True,  # Start in a new session to detach from parent
         )
-    
+
     # Wait a short time to see if the process starts successfully
     time.sleep(1)
-    
+
     # Check if the process is still running
     if _is_process_running(server_process.pid):
         # Write the PID to the PID file
@@ -114,6 +123,7 @@ def start_server(args: argparse.Namespace) -> None:
     else:
         print("Failed to start server. Check the logs for details.")
         print(f"Log file: {log_file_path}")
+
 
 def stop_server(args: argparse.Namespace) -> None:
     """Stop the web server if running."""
@@ -142,32 +152,39 @@ def stop_server(args: argparse.Namespace) -> None:
             os.kill(pid, signal.SIGKILL)
     except OSError as e:
         print(f"Error stopping server: {e}")
-    
+
     # Clean up PID file
     _remove_pid_file()
     print("Server stopped")
-
 
 
 def main() -> None:
     """Main entry point for the web server launcher."""
     parser = argparse.ArgumentParser(description="Neo Web Server Launcher")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
-    
+
     # Start command
     start_parser = subparsers.add_parser("start", help="Start the web server")
-    start_parser.add_argument("--host", default="127.0.0.1", help="Host to run the server on")
-    start_parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port to run the server on")
+    start_parser.add_argument(
+        "--host", default="127.0.0.1", help="Host to run the server on"
+    )
+    start_parser.add_argument(
+        "--port", type=int, default=DEFAULT_PORT, help="Port to run the server on"
+    )
     start_parser.add_argument("--debug", action="store_true", help="Run in debug mode")
     start_parser.add_argument("--workspace", help="Path to workspace")
-    start_parser.add_argument("--force-restart", action="store_true", help="Force restart if server is already running")
-    
+    start_parser.add_argument(
+        "--force-restart",
+        action="store_true",
+        help="Force restart if server is already running",
+    )
+
     # Stop command
     stop_parser = subparsers.add_parser("stop", help="Stop the web server")
-    
+
     # Parse arguments
     args = parser.parse_args()
-    
+
     # Execute the appropriate command
     if args.command == "start":
         start_server(args)
@@ -176,6 +193,7 @@ def main() -> None:
     else:
         # Default to showing help if no command specified
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()

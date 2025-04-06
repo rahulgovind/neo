@@ -27,118 +27,116 @@ logger = logging.getLogger(__name__)
 class CLI:
     """
     Encapsulates the CLI application logic.
-    
+
     This class is responsible for:
     - Parsing command-line arguments
     - Setting up the application environment
     - Initializing the model, functions, and agent
     - Launching the interactive chat
     """
-    
+
     @classmethod
     def start(cls) -> None:
         """
         Start the CLI application.
-        
+
         This method:
         1. Parses command-line arguments
         2. Sets up the application components
         3. Launches the interactive chat
-        
+
         It's the main entry point for the application.
         """
         try:
             # Parse command-line arguments
             args = cls._parse_args()
-            
+
             # Configure logging
             cls._setup_logging(args.verbose)
-            
+
             # Log startup information
             logger.info(f"Starting Neo CLI with workspace: {args.workspace}")
-            
+
             # Create and launch the chat
-            chat = Chat(
-                workspace=args.workspace,
-                history_file=args.history_file
-            )
-            
+            chat = Chat(workspace=args.workspace, history_file=args.history_file)
+
             # Launch the chat session
             chat.launch()
-            
+
         except KeyboardInterrupt:
             # Handle Ctrl+C in the main thread
             logger.info("Application interrupted by user")
             print("\nExiting Neo CLI...")
             sys.exit(0)
-            
+
         except Exception as e:
             # Log any unhandled exceptions
             logger.critical(f"Unhandled exception: {e}", exc_info=True)
             print(f"\nError: {str(e)}")
             sys.exit(1)
-    
+
     @staticmethod
     def _parse_args() -> argparse.Namespace:
         """
         Parse command-line arguments.
-        
+
         Returns:
             Parsed argument namespace
         """
         parser = argparse.ArgumentParser(
             description="Neo - AI assistant for code tasks",
-            formatter_class=argparse.ArgumentDefaultsHelpFormatter
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         )
-        
+
         # Positional argument for workspace
         parser.add_argument(
             "workspace",
             nargs="?",  # Makes it optional
-            help="Path to a code workspace directory"
+            help="Path to a code workspace directory",
         )
-        
+
         parser.add_argument(
-            "--history-file",
-            type=str,
-            help="Path to file for storing command history"
+            "--history-file", type=str, help="Path to file for storing command history"
         )
-        
+
         parser.add_argument(
-            "--verbose", "-v",
+            "--verbose",
+            "-v",
             action="count",
             default=0,
-            help="Increase verbosity (can be used multiple times)"
+            help="Increase verbosity (can be used multiple times)",
         )
-        
+
         args = parser.parse_args()
-        
+
         # Process workspace path if provided
         if args.workspace:
             # Expand user directory (e.g., ~/) and environment variables
             workspace_path = os.path.expanduser(args.workspace)
             workspace_path = os.path.expandvars(workspace_path)
-            
+
             # Convert to absolute path if it's not already
             if not os.path.isabs(workspace_path):
                 workspace_path = os.path.abspath(workspace_path)
-            
+
             # Validate workspace directory
             if not os.path.isdir(workspace_path):
-                raise ValueError(f"Workspace directory does not exist: {workspace_path}")
-            
+                raise ValueError(
+                    f"Workspace directory does not exist: {workspace_path}"
+                )
+
             args.workspace = workspace_path
         else:
             # Default to current directory if no workspace specified
-            args.workspace = os.path.abspath('.')
-        
+            args.workspace = os.path.abspath(".")
+
         return args
-    
+
     @staticmethod
     def _setup_logging(verbosity: int) -> None:
         """
         Configure logging based on verbosity level.
-        
+
         Args:
             verbosity: Level of verbosity (0=INFO, 1=DEBUG, 2+=DEBUG with more details)
         """
@@ -148,46 +146,46 @@ class CLI:
                 log_level = logging.INFO
             else:
                 log_level = logging.DEBUG
-            
+
             # Create ~/.neo directory if it doesn't exist
             log_dir = os.path.expanduser("~/.neo")
             os.makedirs(log_dir, exist_ok=True)
-            
+
             # Path to error log file
             error_log_file = os.path.join(log_dir, "errors.log")
-            
+
             # Create a formatter for all handlers
             formatter = logging.Formatter(
                 "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S"
+                datefmt="%Y-%m-%d %H:%M:%S",
             )
-            
+
             # Configure root logger and remove any existing handlers
             root_logger = logging.getLogger()
             # Remove all existing handlers to prevent duplication
             for handler in root_logger.handlers[:]:
                 root_logger.removeHandler(handler)
-                
+
             root_logger.setLevel(log_level)
-            
+
             # Create console handler for all levels
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setFormatter(formatter)
             console_handler.setLevel(log_level)
-            
+
             # Create file handler for errors only
             file_handler = logging.handlers.RotatingFileHandler(
                 error_log_file,
                 maxBytes=10485760,  # 10MB
-                backupCount=3       # Keep 3 backup files
+                backupCount=3,  # Keep 3 backup files
             )
             file_handler.setLevel(logging.ERROR)
             file_handler.setFormatter(formatter)
-            
+
             # Add handlers to root logger
             root_logger.addHandler(console_handler)
             root_logger.addHandler(file_handler)
-            
+
             # For very verbose mode, enable debug logging for all modules
             if verbosity >= 2:
                 root_logger.setLevel(logging.DEBUG)
@@ -195,27 +193,27 @@ class CLI:
                 # Set conservative default levels for noisy libraries
                 logging.getLogger("openai").setLevel(logging.WARNING)
                 logging.getLogger("httpx").setLevel(logging.WARNING)
-            
+
             # Log the configuration was successful
             logger.debug(f"Logging configured with verbosity level {verbosity}")
             logger.debug(f"Error logs will be saved to {error_log_file}")
-            
+
         except Exception as e:
             # Fallback to basic logging in case of error
             print(f"Warning: Could not set up error logging: {e}")
             logging.basicConfig(
                 level=log_level,
                 format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S"
+                datefmt="%Y-%m-%d %H:%M:%S",
             )
-        
+
         logger.debug(f"Logging configured with verbosity level {verbosity}")
 
 
 def main() -> None:
     """
     Main entry point for the application.
-    
+
     This function simply delegates to the CLI class to start the application.
     It's kept separate to facilitate testing and to provide a clean entry point.
     """

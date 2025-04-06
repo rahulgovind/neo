@@ -26,16 +26,17 @@ logger = logging.getLogger(__name__)
 
 class FileCommandTestBase(unittest.TestCase):
     """Base class for file command tests with common test infrastructure."""
-    
+
     def setUp(self):
         """Set up a temporary test environment."""
         # Create a temporary directory
         self.temp_dir = tempfile.mkdtemp()
-        
+
         # Create a test file with known content
         self.test_py_file = os.path.join(self.temp_dir, "test_file.py")
         with open(self.test_py_file, "w") as f:
-            f.write("""#!/usr/bin/env python3
+            f.write(
+                """#!/usr/bin/env python3
 # Test file for file command tests
 
 import os
@@ -62,70 +63,75 @@ def _process_data(data: Dict) -> List:
 
 if __name__ == "__main__":
     main()
-""")
+"""
+            )
 
         # Create a text file
         self.test_txt_file = os.path.join(self.temp_dir, "test_file.txt")
         with open(self.test_txt_file, "w") as f:
-            f.write("""This is a test file with some text content.
+            f.write(
+                """This is a test file with some text content.
 It has multiple lines.
 Some lines contain the word 'test'.
 Others don't.
 Test with mixed case.
-""")
+"""
+            )
 
         # Create a file in a subdirectory
         subdir = os.path.join(self.temp_dir, "subdir")
         os.makedirs(subdir)
         self.subdir_file = os.path.join(subdir, "subdir_file.py")
         with open(self.subdir_file, "w") as f:
-            f.write("""
+            f.write(
+                """
 # File in subdirectory
 def test_function():
     \"\"\"Test function in subdirectory.\"\"\"
     return "test"
-""")
-        
+"""
+            )
+
         # Create a temporary test session ID
         self.test_session_id = f"test_{self.__class__.__name__.lower()}_session"
-        
+
         # Create a context with our temp directory as workspace
-        self.ctx = context.Context.builder()\
-            .session_id(self.test_session_id)\
-            .workspace(self.temp_dir)\
+        self.ctx = (
+            context.Context.builder()
+            .session_id(self.test_session_id)
+            .workspace(self.temp_dir)
             .initialize()
-        
+        )
+
         # Create a shell instance
         self.shell = self.ctx.shell
-        
+
         # NOTE: Do not mock the environment or model setup here.
         # Tests that require environment or model interaction should initialize
         # and configure these components as needed within the test method itself.
-        
+
     def tearDown(self):
         """Clean up the test environment."""
         # Remove temporary directory
         shutil.rmtree(self.temp_dir)
-    
+
     def execute_command(self, command_line: str) -> Any:
         """Helper method to execute a command with the shell.
-        
+
         Args:
             command_line: The command line string to execute
-            
+
         Returns:
             The command result
         """
         logger.debug(f"Command input: {command_line}")
         parsed_cmd = self.shell.parse(command_line)
-        
+
         logger.debug(f"Executing command with parameters: {parsed_cmd.parameters}")
         result = self.shell.execute(
-            parsed_cmd.name,
-            parsed_cmd.parameters,
-            parsed_cmd.data
+            parsed_cmd.name, parsed_cmd.parameters, parsed_cmd.data
         )
         logger.debug(f"Command result success: {result.success}")
         logger.debug(f"Command result: {result.result}")
-        
+
         return result
