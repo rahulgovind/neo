@@ -36,23 +36,20 @@ class FileCommandTestBase(unittest.TestCase):
         self.test_py_file = os.path.join(self.temp_dir, "test_file.py")
         with open(self.test_py_file, "w") as f:
             f.write(
-                """#!/usr/bin/env python3
-# Test file for file command tests
+                """\"\"\"Test module for file operations.\"\"\"
 
-import os
-import sys
-from typing import List, Dict
+from typing import Dict, List
 
 def main():
     \"\"\"Main function that does something.\"\"\"
     print("Hello, world!")
-    
+
     # Process some data
     data = {
         "key1": "value1",
         "key2": "value2",
     }
-    
+
     for key, value in data.items():
         print(f"{key}: {value}")
 
@@ -132,6 +129,6 @@ def test_function():
             parsed_cmd.name, parsed_cmd.parameters, parsed_cmd.data
         )
         logger.debug(f"Command result success: {result.success}")
-        logger.debug(f"Command result: {result.result}")
+        logger.debug(f"Command result: {str(result.result)}")
 
         return result

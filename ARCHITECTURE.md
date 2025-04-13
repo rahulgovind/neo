@@ -62,13 +62,45 @@ Neo implements a consistent command framework for interacting with the file syst
 - Parameter processing supports both positional and flag arguments with fully declarative definitions
 
 Available commands include:
-- `read_file`: Read and display file contents with flexible line number options, range selection, and line limiting
-- `write_file`: Create or overwrite files with provided content, with automatic parent directory creation and code linting
-- `update_file`: Apply changes to files using a structured diff syntax, with model-assisted fallback for complex changes
-- `neogrep` (grep): Search for patterns in files with filtering by file types and support for context lines
-- `neofind` (find): Locate files and directories based on name patterns and file types
-- `bash`: Execute arbitrary shell commands as a fallback for operations not covered by specialized commands. Maintains 
-  a persistent shell session across command invocations with graceful handling of shell termination and error conditions.
+
+- **`read_file`** (ReadFileCommand): Read and display file contents with the following features:
+  - Line number display with toggle option (--no-line-numbers)
+  - Flexible line range selection (--from, --until)
+  - Output limiting with configurable maximum lines (--limit)
+  - Support for negative indices to count from end of file
+  - Special handling for ~/.neo directory access
+  - Graceful error handling for common file access issues
+
+- **`write_file`** (WriteFileCommand): Create or overwrite files with provided content:
+  - Automatic parent directory creation when needed
+  - Support for relative and absolute paths within workspace
+  - Returns line addition/deletion statistics
+  - Integration with code linting system
+
+- **`update_file`** (UpdateFileCommand): Apply changes to files using a structured diff syntax:
+  - Supports multiple operation types (@UPDATE, @DELETE, @INSERT)
+  - Sequential application of diff chunks
+  - Model-assisted fallback for complex changes or when diff can't be applied
+  - Detailed error reporting and recovery
+  - Preserves file formatting and style
+
+- **`neogrep`** (NeoGrepCommand): Search for patterns in files:
+  - Case-sensitive and case-insensitive searching (-i/--ignore-case)
+  - File pattern filtering to limit search scope (-f/--file-pattern)
+  - Context line display around matches (-C/--context)
+  - Clean and structured output format
+
+- **`neofind`** (NeoFindCommand): Locate files and directories:
+  - Name pattern filtering (-n/--name)
+  - File type filtering for files or directories (-t/--type)
+  - Workspace-aware search paths
+
+- **`bash`** (BashCommand): Execute arbitrary shell commands as a fallback:
+  - Maintains a persistent shell session across command invocations
+  - Captures both standard output and error streams
+  - Graceful handling of shell termination and error conditions
+  - Special handling for exit command
+  - Should only be used when specialized commands are insufficient
 
 The command architecture follows these design principles:
 - **Command Pattern**: Each command implements:
@@ -152,6 +184,3 @@ A database component for persistent storage:
 A dedicated logging infrastructure:
 - Implements structured logging for better analysis
 - Provides consistent log formatting across the application
-
-[... rest of the content remains the same ...]
-123

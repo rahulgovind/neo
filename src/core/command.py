@@ -158,7 +158,7 @@ class Command(ABC):
         pass
 
     @abstractmethod
-    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> str:
+    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> CommandResult:
         """
         Core implementation of the command's functionality.
 
@@ -167,8 +167,11 @@ class Command(ABC):
             args: Parameter name-value pairs
             data: Optional data string (similar to stdin)
 
+        Returns:
+            CommandResult object with result, success status, and optional summary
+
         Raises:
-            Exception: If command execution fails
+            FatalError: For unrecoverable errors that should terminate execution
         """
         pass
 
@@ -200,6 +203,8 @@ class Command(ABC):
             cmd_template.requires_data,
         )
 
+
+
     def execute(
         self, ctx, parameters: Dict[str, Any], data: Optional[str] = None
     ) -> CommandResult:
@@ -214,14 +219,11 @@ class Command(ABC):
             data: Optional data string
 
         Returns:
-            CommandResult object with success/failure status and result/error
+            CommandResult object with success/failure status, result/error, and optional summary
         """
         try:
-            # Process the command
-            result = self.process(ctx, parameters, data)
-
-            # Return success result
-            return CommandResult(result=result, success=True)
+            # Process the command - should return a CommandResult
+            return self.process(ctx, parameters, data)
 
         except FatalError:
             # Re-raise fatal errors without converting to CommandResult

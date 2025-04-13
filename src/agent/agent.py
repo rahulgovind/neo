@@ -4,10 +4,10 @@ With added support for hierarchical memory management for enhanced context reten
 
 from dataclasses import dataclass
 import json
-import os.path
 import os
 import logging
-from typing import List, Optional
+import time
+from typing import List, Dict, Any, Optional, Callable, Iterator
 from datetime import datetime
 
 from src.core.context import Context
@@ -29,6 +29,11 @@ class AgentState:
     def from_dict(cls, data):
         """Create AgentState from a dictionary."""
         return cls(messages=[Message.from_dict(msg) for msg in data["messages"]])
+
+    def update(self, messages: List[Message]) -> "AgentState":
+        """Update the AgentState with new values."""
+        self.messages = messages
+        return self
 
 
 class Agent:
@@ -153,12 +158,12 @@ class Agent:
         except Exception as e:
             logger.error(f"Error writing to chat log: {e}")
 
-    def process(self, user_message: str) -> str:
+    def process(self, user_message: str) -> Iterator[str]:
         """
         Process a user message and generate a response.
 
         Returns:
-            Text response from the assistant (excluding command calls)
+            Iterator of text responses from the assistant and command results
         """
         logger.info("Processing user message")
 
@@ -170,27 +175,36 @@ class Agent:
             self.state.messages.append(
                 Message(role="user", content=[TextBlock(user_message)])
             )
+            self._save_state()
 
             # Process messages, handling any command calls
-            self._process()
-
-            # Save the updated state
-            self._save_state()
+            yield from self._process()
 
             # Get the final response (should be the last message from the assistant)
             final_response = self.state.messages[-1]
             if final_response.role != "assistant":
                 logger.warning("Last message in state is not from assistant")
-                return "I had an issue processing your request. Please try again."
+                yield "I had an issue processing your request. Please try again."
+                return
 
             logger.info("User message processed successfully")
-            return final_response.text()
+            # Note: We don't yield the final response here as it's already yielded in _process()
 
         except Exception as e:
             logger.error(f"Error processing user message: {e}")
             # Provide a user-friendly error message
-            return "I encountered an error processing your request. Please try again or rephrase your message."
+            yield "I encountered an error processing your request. Please try again or rephrase your message."
 
+    def _do_state_change(self, func: Callable[AgentState, None]) -> None:
+        """
+        Perform a state change and save the updated state.
+        
+        Args:
+            func: A function that modifies the state
+        """
+        func(self.state)
+        self._save_state()
+        
     def _save_state(self) -> None:
         """
         Save the current agent state to the state file.
@@ -224,18 +238,20 @@ class Agent:
         ), f"Expected last message to be from assistant, got {self.state.messages[-1].role}"
 
         # Only trigger if state has more than 15 messages
-        if len(self.state.messages) < 100:
+        if len(self.state.messages) < 200:
             return
 
         # Only keep the last 6 messages on pruning
-        self.state.messages = self.state.messages[-6:]
-        self._save_state()
+        self._do_state_change(lambda state: state.update(messages=state.messages[-100:]))
 
-    def _process(self) -> None:
+    def _process(self) -> Iterator[str]:
         """
         Process messages and manually handle any command calls.
 
         Executes commands as needed and updates memory after each model processing step.
+        
+        Returns:
+            Iterator of text responses from the assistant and command results
         """
         # Get the model from the context
         model = self.ctx.model
@@ -262,10 +278,13 @@ class Agent:
             )
 
             # Add the response to state
-            self.state.messages.append(current_response)
+            self._do_state_change(lambda state: state.messages.append(current_response))
 
             # Log assistant message
             self._log_to_chat(f"NEO: {current_response.text()}")
+            
+            # Yield the assistant's response using display_text
+            yield current_response.display_text()
 
             self._prune_state()
 
@@ -273,6 +292,7 @@ class Agent:
             if not current_response.has_command_executions():
                 break
 
+            # Get command calls from the response
             command_calls = current_response.get_command_calls()
             # Process commands manually using the shell
             command_results = self.ctx.shell.process_commands(command_calls)
@@ -280,7 +300,9 @@ class Agent:
             # Log command results
             for result in command_results:
                 self._log_to_chat(f"SYSTEM: {result.text}")
+                # Yield each command result using display_text
+                yield result.display_text()
 
             # Create a single user message with all results
             result_message = Message(role="user", content=command_results)
-            self.state.messages.append(result_message)
+            self._do_state_change(lambda state: state.messages.append(result_message))

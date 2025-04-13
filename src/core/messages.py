@@ -26,6 +26,10 @@ class ContentBlock:
 
     def text(self) -> str:
         return self.__str__()
+        
+    def display_text(self) -> str:
+        """Returns text suitable for display to the user."""
+        return self.text()
 
 
 class TextBlock(ContentBlock):
@@ -148,11 +152,12 @@ class CommandResult(TextBlock):
     """Represents a command result content block in a message."""
 
     def __init__(
-        self, result: Any = None, success: bool = True, error: Optional[str] = None
+        self, result: Any = None, success: bool = True, error: Optional[str] = None, summary: Optional[str] = None
     ):
         self.result = result
         self.success = success
         self.error = error
+        self.summary = summary
         self._text = self._generate_text()
 
     def _generate_text(self) -> str:
@@ -164,6 +169,12 @@ class CommandResult(TextBlock):
 
     def __str__(self) -> str:
         return self._text
+        
+    def display_text(self) -> str:
+        """Returns the summary if available, otherwise returns the text."""
+        if self.summary is not None:
+            return self.summary
+        return self.text()
 
 
 class ParsedCommand:
@@ -219,6 +230,11 @@ class Message:
     def text(self) -> str:
         """Get all text content from the message, joined with newlines."""
         text_parts = [block.text() for block in self.content]
+        return "\n".join(text_parts)
+        
+    def display_text(self) -> str:
+        """Get all display text content from the message, joined with newlines."""
+        text_parts = [block.display_text() for block in self.content]
         return "\n".join(text_parts)
 
     def to_dict(self) -> Dict[str, Any]:

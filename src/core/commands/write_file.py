@@ -74,11 +74,11 @@ class WriteFileCommand(Command):
                     description="Path to the file to create or overwrite.",
                     required=True,
                     is_positional=True,
-                )
+                ),
             ],
         )
 
-    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> str:
+    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> CommandResult:
         """
         Process the command with the parsed arguments and optional data.
 
@@ -88,7 +88,7 @@ class WriteFileCommand(Command):
             data: Optional data string containing the content to write to the file
 
         Returns:
-            Status message with line addition/deletion counts
+            CommandResult with success status and summary of the operation
         """
         # Get the workspace from the context
         workspace = ctx.workspace
@@ -102,6 +102,17 @@ class WriteFileCommand(Command):
             logger.error("No content provided to write_file command")
             raise FatalError("Content must be provided as data (after |)")
 
-        # Let exceptions propagate up to the caller
-        success, lines_added, lines_deleted = overwrite(workspace, path, data)
-        return f"SUCCESS (+{lines_added},-{lines_deleted})"
+        # Get the no_lint flag (defaults to False)
+        no_lint = args.get("no_lint", False)
+        
+        # Pass the no_lint flag to the overwrite function
+        success, lines_added, lines_deleted = overwrite(workspace, path, data, no_lint)
+        
+        if not success:
+            return CommandResult(success=False, error=f"Failed to write to {path}")
+        
+        result_text = f"SUCCESS (+{lines_added},-{lines_deleted})"
+        file_path = os.path.basename(path)
+        summary = f"File updated: {file_path} (+{lines_added},-{lines_deleted})"
+        
+        return CommandResult(result=result_text, success=True, summary=summary)

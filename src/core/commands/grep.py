@@ -113,7 +113,7 @@ class NeoGrepCommand(Command):
             requires_data=False,
         )
 
-    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> str:
+    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> CommandResult:
         """
         Process the command with the parsed arguments and optional data.
 
@@ -123,7 +123,7 @@ class NeoGrepCommand(Command):
             data: Optional data string (not used)
 
         Returns:
-            Search results from grep, or error message
+            CommandResult with search results from grep and summary
         """
         # Get the workspace from the context
         workspace = ctx.workspace
@@ -203,15 +203,25 @@ class NeoGrepCommand(Command):
 
             # Check if we have results
             if process.returncode == 0:
-                return process.stdout.strip()
+                result = process.stdout.strip()
+                # Create a summary of the search
+                match_count = len(result.splitlines())
+                search_path_display = os.path.basename(search_path) or search_path
+                file_pattern_info = f" in {file_pattern} files" if file_pattern else ""
+                case_info = " (case-insensitive)" if args.get("ignore_case", False) else ""
+                summary = f"Found {match_count} matches for '{pattern}' in {search_path_display}{file_pattern_info}{case_info}"
+                return CommandResult(result=result, success=True, summary=summary)
             elif process.returncode == 1:
-                return "No matches found."
+                summary = f"No matches found for '{pattern}'"
+                return CommandResult(result="No matches found.", success=True, summary=summary)
             else:
                 # Other error occurred
+                error_msg = f"Search failed: {process.stderr}"
                 logger.error(
                     f"Grep command failed with return code {process.returncode}: {process.stderr}"
                 )
-                raise FatalError(f"Search failed: {process.stderr}")
+                return CommandResult(success=False, error=error_msg)
         except Exception as e:
+            error_msg = f"Command execution failed: {str(e)}"
             logger.error(f"Error executing grep command: {str(e)}")
-            raise FatalError(f"Command execution failed: {str(e)}")
+            return CommandResult(success=False, error=error_msg)

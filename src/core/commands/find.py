@@ -91,7 +91,7 @@ class NeoFindCommand(Command):
             requires_data=False,
         )
 
-    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> str:
+    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> CommandResult:
         """
         Process the command with the parsed arguments and optional data.
 
@@ -101,7 +101,7 @@ class NeoFindCommand(Command):
             data: Optional data string (not used)
 
         Returns:
-            Find command results, or error message
+            CommandResult with find command results and summary
         """
         # Get the workspace from the context
         workspace = ctx.workspace
@@ -159,16 +159,30 @@ class NeoFindCommand(Command):
 
             # Check if we have results
             if process.returncode == 0:
-                if not process.stdout.strip():
-                    return "No matching files found."
-                return process.stdout.strip()
+                result = process.stdout.strip()
+                if not result:
+                    summary = "No matching files found"
+                    return CommandResult(result="No matching files found.", success=True, summary=summary)
+                
+                # Create a summary of the operation
+                file_count = len(result.splitlines())
+                search_path_display = os.path.basename(search_path) or search_path
+                pattern_info = f" matching '{name_pattern}'" if name_pattern else ""
+                type_info = ""
+                if file_type:
+                    type_info = " (directories only)" if file_type == "d" else " (files only)"
+                
+                summary = f"Found {file_count} items in {search_path_display}{pattern_info}{type_info}"
+                return CommandResult(result=result, success=True, summary=summary)
             else:
                 # Error occurred
+                error_msg = f"Find failed: {process.stderr}"
                 logger.error(
                     f"Find command failed with return code {process.returncode}: {process.stderr}"
                 )
-                raise RuntimeError(f"Find failed: {process.stderr}")
+                return CommandResult(success=False, error=error_msg)
 
         except Exception as e:
+            error_msg = f"Error executing find: {str(e)}"
             logger.error(f"Error executing find command: {str(e)}")
-            raise RuntimeError(f"Error executing find: {str(e)}")
+            return CommandResult(success=False, error=error_msg)

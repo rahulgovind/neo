@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional, List
 
 from src.core.command import Command, CommandTemplate, CommandParameter
 from src.core.exceptions import FatalError
-from src.core.messages import Message, TextBlock
+from src.core.messages import Message, TextBlock, CommandResult
 from src.core.context import Context
 from src.utils.files import patch
 
@@ -220,8 +220,17 @@ class UpdateFileCommand(Command):
 
     def process(
         self, ctx: Context, args: Dict[str, Any], data: Optional[str] = None
-    ) -> str:
-        """Process the update file command"""
+    ) -> CommandResult:
+        """Process the update file command with the parsed arguments and data.
+        
+        Args:
+            ctx: Application context
+            args: Dictionary of parameter names to their values
+            data: The diff content to apply to the file
+        
+        Returns:
+            CommandResult with success status and summary of the operation
+        """
         # Get the file path from arguments
         file_path = args.get("path")
         if not file_path:
@@ -252,14 +261,16 @@ class UpdateFileCommand(Command):
 
             if write_result.success:
                 logger.info(f"Successfully applied diff to {file_path}")
-                return "✅File updated successfully"
+                file_name = os.path.basename(file_path)
+                summary = f"File updated: {file_name}"
+                return CommandResult(result="✅File updated successfully", success=True, summary=summary)
             else:
-                return f"❌{write_result.error}"
+                return CommandResult(success=False, error=write_result.error)
 
         except RuntimeError as e:
             if bool(args.get("disable_model_fallback")):
                 logger.warning(f"Disabling model fallback: {str(e)}")
-                return f"❌{str(e)}"
+                return CommandResult(success=False, error=str(e), summary="Model fallback disabled")
 
             # If patch failed with a FatalError, fall back to using the model
             error_message = str(e)
@@ -273,7 +284,7 @@ class UpdateFileCommand(Command):
                 parameters={"path": file_path, "include_line_numbers": True},
             )
             if not read_result.success:
-                return f"❌{read_result.error}"
+                return CommandResult(success=False, error=read_result.error)
 
             file_content = read_result.result
 
@@ -284,14 +295,31 @@ class UpdateFileCommand(Command):
             escaped_file_content = _escape_special_chars(file_content)
 
             # Build the initial message with file content, diff, and original error message
-            initial_message = (
-                f"I need to update the file at '{file_path}' with this diff that couldn't be applied automatically:\n\n{diff_text}\n\n"
-                + f"The automatic diff application failed with this error (which you MUST include verbatim in your response):\n\n```\n{error_message}\n```\n\n"
-                + f"Here is the current content of the file:\n\n{escaped_file_content}\n\n"
-                + f"First, quote the exact original error message as shown above. Then identify and show the exact relevant portions of the file related to this error, "
-                + f"including their line numbers. After that, make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content. "
-                + f"Once done, say <Successfully updated file> if you were successful, else say that you failed to update the file."
-                + f" You MUST always write the file in its entirety. DO NOT write partial contents."
+            initial_message = textwrap.dedent(
+                f"""
+                I need to update the file at '{file_path}' with this diff that couldn't be applied automatically:
+                {diff_text}
+                
+                The automatic diff application failed with this error (which you MUST include verbatim in your response):
+                ```
+                {error_message}
+                ```
+                
+                Here is the current content of the file:
+                {escaped_file_content}
+                
+                DO NOT try to fix lint errors yourself.
+
+                First, quote the exact original error message as shown above. 
+                Then identify and show the exact relevant portions of the file related to this error, including their line numbers.
+                After that, make the necessary changes aligned with the intent of the diff and use the write_file command to save the updated content.
+                Once done, 
+                - If successful, say <Successfully updated file>. Include any lint errors you hit VERBATIM in your response.
+                - If you failed to update the file, say that you failed to update the file.
+                
+                You MUST always write the file in its entirety. 
+                DO NOT write partial contents.
+                """
             )
 
             # Create messages
@@ -301,9 +329,16 @@ class UpdateFileCommand(Command):
 
             # Process the message with the model - only allowing write_file command
             system_prompt = self._get_system_prompt()
-            return model.process(
+            model_result = model.process(
                 system=system_prompt,
                 messages=messages,
                 commands=["read_file", "write_file"],
                 auto_execute_commands=True,
-            ).text()
+            )
+            
+            # Return the model's response as a CommandResult
+            return CommandResult(
+                result=model_result.text(),
+                success=True,
+                summary=f"File updated with model assistance: {os.path.basename(file_path)}"
+            )

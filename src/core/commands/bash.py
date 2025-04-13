@@ -13,6 +13,7 @@ import select
 from typing import Dict, Any, Optional, List
 
 from src.core.command import Command, CommandTemplate, CommandParameter
+from src.core.messages import CommandResult
 from src.core.context import Context
 
 # Configure logging
@@ -71,7 +72,7 @@ class BashCommand(Command):
             parameters=[],
         )
 
-    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> str:
+    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> CommandResult:
         """
         Process the command with the parsed arguments and data.
 
@@ -81,7 +82,7 @@ class BashCommand(Command):
             data: The shell command to execute as a string
 
         Returns:
-            Output from the shell command
+            CommandResult with output from the shell command and summary
         """
         # Get the workspace from the context
         workspace = ctx.workspace
@@ -140,7 +141,8 @@ class BashCommand(Command):
                 # Clean up references to the terminated process
                 BashCommand._process_id = None
                 BashCommand._shell_process = None
-                return result
+                summary = "Shell terminated"
+                return CommandResult(result=result, success=True, summary=summary)
 
             # Send the command to the shell process
             command_with_newline = command + "\n"
@@ -192,7 +194,9 @@ class BashCommand(Command):
                 logger.info("Shell process terminated while checking exit status")
                 BashCommand._process_id = None
                 BashCommand._shell_process = None
-                return result_prefix + "\n".join(output_lines)
+                result = result_prefix + "\n".join(output_lines)
+                summary = "Shell terminated while executing command"
+                return CommandResult(result=result, success=True, summary=summary)
 
             try:
                 exit_code = int(exit_code_line)
@@ -225,7 +229,9 @@ class BashCommand(Command):
                 raise RuntimeError(f"Command failed: {error_msg}")
 
             # Return the stdout from the command
-            return result_prefix + "\n".join(output_lines)
+            result = result_prefix + "\n".join(output_lines)
+            summary = f"Command executed: {command[:30]}{'...' if len(command) > 30 else ''}"
+            return CommandResult(result=result, success=True, summary=summary)
 
         except BrokenPipeError as e:
             logger.info(f"Shell process terminated: {str(e)}")
@@ -237,7 +243,7 @@ class BashCommand(Command):
             # For other commands, clean up and report the error
             BashCommand._process_id = None
             BashCommand._shell_process = None
-            raise RuntimeError(f"Shell terminated unexpectedly")
+            return CommandResult(success=False, error="Shell terminated unexpectedly")
 
         except Exception as e:
             logger.error(f"Error executing bash command: {str(e)}")

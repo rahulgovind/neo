@@ -9,7 +9,7 @@ import logging
 import textwrap
 from typing import Dict, Any, Optional
 
-from src.core.command import Command, CommandTemplate, CommandParameter
+from src.core.command import Command, CommandTemplate, CommandParameter, CommandResult
 from src.core.exceptions import FatalError
 from src.utils.files import read
 
@@ -153,7 +153,7 @@ class ReadFileCommand(Command):
             ],
         )
 
-    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> str:
+    def process(self, ctx, args: Dict[str, Any], data: Optional[str] = None) -> CommandResult:
         """
         Process the command with the parsed arguments and optional data.
 
@@ -163,7 +163,7 @@ class ReadFileCommand(Command):
             data: Optional data string (not used in this command)
 
         Returns:
-            File contents with optional line numbers, or error message
+            CommandResult with file contents and summary
         """
         # Get the workspace from the context
         workspace = ctx.workspace
@@ -222,6 +222,17 @@ class ReadFileCommand(Command):
 
         # Check if content contains a file not found error message
         if content.startswith("File not found:"):
-            raise FatalError(content)
+            return CommandResult(success=False, error=content)
 
-        return content
+        # Create a summary of the operation
+        file_path = os.path.basename(full_path)
+        summary = f"Read file: {file_path}"
+        if from_line is not None or until_line is not None:
+            line_range = ""
+            if from_line is not None:
+                line_range += f"from line {from_line} "
+            if until_line is not None:
+                line_range += f"to line {until_line}"
+            summary += f" ({line_range.strip()})"
+
+        return CommandResult(result=content, success=True, summary=summary)

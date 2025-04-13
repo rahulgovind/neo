@@ -7,20 +7,19 @@ It ties together all the other modules to create a cohesive application.
 """
 
 import os
-import errno
 import sys
-import logging
-import logging.handlers
 import argparse
+import logging
 from typing import Dict, Any, Optional, List
 
+# Logging is configured in src/__init__.py when imported
 from src.core.model import Model
 from src.core.context import Context, ContextBuilder
 from src.agent.agent import Agent
 from src.core.shell import Shell
 from src.apps.chat import Chat
 
-# Configure logging
+# Configure logger for this module
 logger = logging.getLogger(__name__)
 
 
@@ -42,8 +41,7 @@ class CLI:
 
         This method:
         1. Parses command-line arguments
-        2. Sets up the application components
-        3. Launches the interactive chat
+        2. Delegates to the appropriate Chat class methods based on the subcommand
 
         It's the main entry point for the application.
         """
@@ -51,17 +49,26 @@ class CLI:
             # Parse command-line arguments
             args = cls._parse_args()
 
-            # Configure logging
-            cls._setup_logging(args.verbose)
-
-            # Log startup information
-            logger.info(f"Starting Neo CLI with workspace: {args.workspace}")
-
-            # Create and launch the chat
-            chat = Chat(workspace=args.workspace, history_file=args.history_file)
-
-            # Launch the chat session
-            chat.launch()
+            # Execute the appropriate subcommand
+            if args.subcommand == 'chat':
+                # Start interactive chat session using Chat's class method
+                logger.info(f"Using workspace: {args.workspace}")
+                Chat.start_interactive(
+                    workspace=args.workspace,
+                    history_file=args.history_file,
+                    session_name=None  # Chat subcommand doesn't take a session parameter
+                )
+            elif args.subcommand == 'create-session':
+                # Create a new session using Chat's class method
+                logger.info(f"Using workspace: {args.workspace}")
+                session = Chat.create_new_session(workspace=args.workspace, session_name=args.session)
+                print(f"Session '{session.session_name}' created successfully")
+                print(f"Session ID: {session.session_id}")
+                print(f"Workspace: {args.workspace}")
+            elif args.subcommand == 'message':
+                # Process a single message using the Chat class method
+                # For message, we need to create a temporary workspace
+                Chat.message(message=args.message, workspace=os.getcwd(), session=args.session)
 
         except KeyboardInterrupt:
             # Handle Ctrl+C in the main thread
@@ -88,126 +95,47 @@ class CLI:
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         )
 
-        # Positional argument for workspace
-        parser.add_argument(
-            "workspace",
-            nargs="?",  # Makes it optional
-            help="Path to a code workspace directory",
-        )
+        # Create subparsers for different commands
+        subparsers = parser.add_subparsers(dest="subcommand", help="Subcommand to run", required=True)
 
-        parser.add_argument(
+        # 1. Chat subcommand - interactive chat session
+        chat_parser = subparsers.add_parser(
+            "chat", help="Start an interactive chat session"
+        )
+        chat_parser.add_argument(
+            "workspace", help="Path to a code workspace directory"
+        )
+        chat_parser.add_argument(
             "--history-file", type=str, help="Path to file for storing command history"
         )
 
-        parser.add_argument(
-            "--verbose",
-            "-v",
-            action="count",
-            default=0,
-            help="Increase verbosity (can be used multiple times)",
+        # 2. Create-session subcommand - create a new session
+        create_session_parser = subparsers.add_parser(
+            "create-session", help="Create a new session"
+        )
+        create_session_parser.add_argument(
+            "--session", "-s", type=str, help="Name of the session to create"
+        )
+        create_session_parser.add_argument(
+            "workspace", help="Path to a code workspace directory"
         )
 
-        args = parser.parse_args()
+        # 3. Message subcommand - process a single message
+        message_parser = subparsers.add_parser(
+            "message", help="Process a single message in headless mode"
+        )
+        message_parser.add_argument(
+            "message", help="Message content to process"
+        )
+        message_parser.add_argument(
+            "--session", "-s", type=str, help="Name of the session to use"
+        )
 
-        # Process workspace path if provided
-        if args.workspace:
-            # Expand user directory (e.g., ~/) and environment variables
-            workspace_path = os.path.expanduser(args.workspace)
-            workspace_path = os.path.expandvars(workspace_path)
+        return parser.parse_args()
+        
 
-            # Convert to absolute path if it's not already
-            if not os.path.isabs(workspace_path):
-                workspace_path = os.path.abspath(workspace_path)
 
-            # Validate workspace directory
-            if not os.path.isdir(workspace_path):
-                raise ValueError(
-                    f"Workspace directory does not exist: {workspace_path}"
-                )
 
-            args.workspace = workspace_path
-        else:
-            # Default to current directory if no workspace specified
-            args.workspace = os.path.abspath(".")
-
-        return args
-
-    @staticmethod
-    def _setup_logging(verbosity: int) -> None:
-        """
-        Configure logging based on verbosity level.
-
-        Args:
-            verbosity: Level of verbosity (0=INFO, 1=DEBUG, 2+=DEBUG with more details)
-        """
-        try:
-            # Set root logger level based on verbosity
-            if verbosity == 0:
-                log_level = logging.INFO
-            else:
-                log_level = logging.DEBUG
-
-            # Create ~/.neo directory if it doesn't exist
-            log_dir = os.path.expanduser("~/.neo")
-            os.makedirs(log_dir, exist_ok=True)
-
-            # Path to error log file
-            error_log_file = os.path.join(log_dir, "errors.log")
-
-            # Create a formatter for all handlers
-            formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-
-            # Configure root logger and remove any existing handlers
-            root_logger = logging.getLogger()
-            # Remove all existing handlers to prevent duplication
-            for handler in root_logger.handlers[:]:
-                root_logger.removeHandler(handler)
-
-            root_logger.setLevel(log_level)
-
-            # Create console handler for all levels
-            console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setFormatter(formatter)
-            console_handler.setLevel(log_level)
-
-            # Create file handler for errors only
-            file_handler = logging.handlers.RotatingFileHandler(
-                error_log_file,
-                maxBytes=10485760,  # 10MB
-                backupCount=3,  # Keep 3 backup files
-            )
-            file_handler.setLevel(logging.ERROR)
-            file_handler.setFormatter(formatter)
-
-            # Add handlers to root logger
-            root_logger.addHandler(console_handler)
-            root_logger.addHandler(file_handler)
-
-            # For very verbose mode, enable debug logging for all modules
-            if verbosity >= 2:
-                root_logger.setLevel(logging.DEBUG)
-            else:
-                # Set conservative default levels for noisy libraries
-                logging.getLogger("openai").setLevel(logging.WARNING)
-                logging.getLogger("httpx").setLevel(logging.WARNING)
-
-            # Log the configuration was successful
-            logger.debug(f"Logging configured with verbosity level {verbosity}")
-            logger.debug(f"Error logs will be saved to {error_log_file}")
-
-        except Exception as e:
-            # Fallback to basic logging in case of error
-            print(f"Warning: Could not set up error logging: {e}")
-            logging.basicConfig(
-                level=log_level,
-                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-
-        logger.debug(f"Logging configured with verbosity level {verbosity}")
 
 
 def main() -> None:

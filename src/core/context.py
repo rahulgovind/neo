@@ -3,11 +3,9 @@ Context module providing a dataclass for storing context information.
 """
 
 from dataclasses import dataclass
-import datetime
 import os
-from os import environ
-from typing import Optional, TYPE_CHECKING
-
+from typing import Optional
+from typing import TYPE_CHECKING
 from src.core.exceptions import FatalError
 
 # For type checking only - not imported at runtime
@@ -24,10 +22,12 @@ class Context:
 
     Attributes:
         session_id: Unique identifier for the current session
+        session_name: Optional friendly name for the session
         _workspace: Optional path to the code workspace
     """
 
     session_id: str
+    session_name: Optional[str] = None
     _workspace: Optional[str] = None
     _model: Optional["Model"] = None
     _shell: Optional["Shell"] = None
@@ -46,9 +46,9 @@ class Context:
         if size not in ["SM", "LG"]:
             raise ValueError("Size must be either 'SM' or 'LG'")
 
-        model_id = environ.get("MODEL_ID")  # Default/LG model
+        model_id = os.environ.get("MODEL_ID")  # Default/LG model
         if size == "SM":
-            model_id = environ.get(
+            model_id = os.environ.get(
                 "SM_MODEL_ID", model_id
             )  # Fallback to default if SM not specified
 
@@ -106,22 +106,30 @@ class ContextBuilder:
 
     def __init__(self):
         self._session_id = None
+        self._session_name = None
         self._workspace = None
         self._model_name = None
         self._context = None
 
     def _copy(self) -> "ContextBuilder":
-        """Create a copy of this builder with the same state."""
+        """Create a copy of this builder with the same settings."""
         new_builder = ContextBuilder()
         new_builder._session_id = self._session_id
+        new_builder._session_name = self._session_name
         new_builder._workspace = self._workspace
         new_builder._model_name = self._model_name
         return new_builder
 
-    def session_id(self, session_id: str) -> "ContextBuilder":
-        """Set the session ID for the context."""
+    def session_id(self, session_id: Optional[str]) -> "ContextBuilder":
+        """Set the session ID for this context."""
         new_builder = self._copy()
         new_builder._session_id = session_id
+        return new_builder
+
+    def session_name(self, session_name: str) -> "ContextBuilder":
+        """Set a friendly name for this session."""
+        new_builder = self._copy()
+        new_builder._session_name = session_name
         return new_builder
 
     def workspace(self, workspace: str) -> "ContextBuilder":
@@ -135,39 +143,41 @@ class ContextBuilder:
         new_builder = self._copy()
         new_builder._model_name = model_name
         return new_builder
+        
+    def _generate_default_session_id(self) -> str:
+        """Generate a default session ID."""
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc).astimezone()
+        return f"session-{now.month:02d}{now.day:02d}-{now.hour:02d}{now.minute:02d}{now.second:02d}"
 
     def initialize(self) -> Context:
         """
-        Initialize the context with all required components.
-
+        Initialize the context with the configured settings.
+        
         Returns:
-            The fully initialized Context instance
-
-        Raises:
-            ValueError: If any required fields are missing
+            Initialized Context object
         """
-        if not self._session_id:
-            # Generate a session ID with format session-MMDD-HHMMSS using local timezone
-            now = datetime.datetime.now(datetime.timezone.utc).astimezone()
-            self._session_id = f"session-{now.month:02d}{now.day:02d}-{now.hour:02d}{now.minute:02d}{now.second:02d}"
-
-        # Create the initial context
-        self._context = Context(session_id=self._session_id, _workspace=self._workspace)
+        # Use provided session ID or generate a default one
+        session_id = self._session_id or self._generate_default_session_id()
+        session_name = self._session_name
+        
+        # Create the context object
+        ctx = Context(
+            session_id=session_id,
+            session_name=session_name,
+            _workspace=self._workspace,
+        )
 
         # Initialize the shell
         from src.core.shell import Shell
-
-        self._context._shell = Shell(ctx=self._context)
+        ctx._shell = Shell(ctx=ctx)
 
         # Initialize the model
         from src.core.model import Model
-
-        # Initialize the model
-        self._context._model = Model(ctx=self._context, model_id=self._model_name)
+        ctx._model = Model(ctx=ctx, model_id=self._model_name)
 
         # Initialize the agent
         from src.agent.agent import Agent
+        ctx._agent = Agent(ctx=ctx)
 
-        self._context._agent = Agent(ctx=self._context)
-
-        return self._context
+        return ctx

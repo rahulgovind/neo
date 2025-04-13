@@ -11,7 +11,7 @@ import logging
 import signal
 import time
 import sys
-from typing import Optional, Any, Tuple
+from typing import Optional, Any
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -23,22 +23,14 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
 
 from src.core.context import Context
+from src.core.session_manager import SessionManager
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 
-class Chat:
-    """
-    Interactive chat interface for communicating with an LLM-powered Agent.
 
-    The Chat class provides:
-    - A terminal-based interactive session
-    - Rich text rendering of markdown responses
-    - Command handling for special user inputs
-    - History tracking and persistence
-    - Session management (start, stop, graceful termination)
-    """
+class InteractiveChat:
 
     # Special commands that can be entered by the user
     COMMANDS = {
@@ -46,63 +38,17 @@ class Chat:
         "/help": "Show this help message",
         "/debug": "Toggle debug mode",
         "/new-session": "Create a new session",
+        "/list-sessions": "List sessions",
+        "/switch-session": "Switch session"
     }
 
-    def __init__(
-        self,
-        workspace: str,
-        history_file: Optional[str] = None,
-    ):
-        """
-        Initialize the chat interface.
-
-        Args:
-            workspace: Path to the code workspace being modified
-            history_file: Path to file for storing command history
-        """
-        self.workspace = workspace
-
-        # Setup active session tracking
-        self.active_session_file = os.path.join(
-            os.path.expanduser("~"), ".neo", "active_session_id"
-        )
-
-        # Determine if we should use an existing session or create a new one
-        session_id, is_new_session = self._get_or_create_session_id()
-
-        # Create and initialize the context
-        if session_id:
-            self._ctx = (
-                Context.builder()
-                .session_id(session_id)
-                .workspace(workspace)
-                .initialize()
-            )
-        else:
-            self._ctx = Context.builder().workspace(workspace).initialize()
-
-        # Save the current session as active
-        self._save_active_session(self._ctx.session_id)
-
-        # Get the agent from the context
-        self._console = Console()
-
-        # Show session status on initialization
-        session_status = "Using existing" if not is_new_session else "Created new"
-        logger.info(f"{session_status} session: {self._ctx.session_id}")
-
+    def __init__(self, ctx: Context) -> None:
+        self._ctx = ctx
         # Determine history file location
-        if history_file is None:
-            # Use a default location in the user's home directory
-            history_dir = os.path.join(os.path.expanduser("~"), ".neo")
-            os.makedirs(history_dir, exist_ok=True)
-            self.history_file = os.path.join(history_dir, "history")
-        else:
-            self.history_file = history_file
-            # Ensure the directory exists
-            os.makedirs(
-                os.path.dirname(os.path.abspath(self.history_file)), exist_ok=True
-            )
+        # Use a default location in the user's home directory
+        history_dir = os.path.join(os.path.expanduser("~"), ".neo")
+        os.makedirs(history_dir, exist_ok=True)
+        self.history_file = os.path.join(history_dir, "history")
 
         # Setup custom key bindings
         kb = KeyBindings()
@@ -113,6 +59,9 @@ class Chat:
             """Exit when the user presses Ctrl+D."""
             self.running = False
             event.app.exit()
+
+        # Create a console for output
+        self._console = Console()
 
         # Initialize prompt session with history, auto-suggestion and key bindings
         # Use command completer for command auto-completion
@@ -125,74 +74,11 @@ class Chat:
             key_bindings=kb,
         )
 
-        # State tracking
+        # State tracking for interactive mode
         self.debug_mode = False
         self.interrupt_counter = 0
         self.last_interrupt_time = 0
 
-        logger.info(f"Chat initialized with workspace: {workspace}")
-
-    def _get_or_create_session_id(self) -> Tuple[Optional[str], bool]:
-        """
-        Get the active session ID if it exists, or return None to create a new one.
-
-        Returns:
-            Tuple containing (session_id, is_new_session)
-            - session_id will be None if no valid active session exists
-            - is_new_session will be True if a new session needs to be created
-        """
-        try:
-            # Check if there's an active session file
-            if os.path.exists(self.active_session_file):
-                with open(self.active_session_file, "r") as f:
-                    session_id = f.read().strip()
-
-                if session_id:
-                    # Check if the session directory exists
-                    session_dir = os.path.expanduser(f"~/.neo/{session_id}")
-                    if os.path.exists(session_dir):
-                        logger.info(f"Found existing session: {session_id}")
-                        return session_id, False
-
-        except Exception as e:
-            logger.warning(f"Error reading active session file: {e}")
-
-        # If we get here, we need a new session
-        return None, True
-
-    def _save_active_session(self, session_id: str) -> None:
-        """Save the current session ID as the active session."""
-        try:
-            # Ensure directory exists
-            os.makedirs(os.path.dirname(self.active_session_file), exist_ok=True)
-
-            # Write the session ID to the active session file
-            with open(self.active_session_file, "w") as f:
-                f.write(session_id)
-
-            logger.info(f"Saved {session_id} as active session")
-        except Exception as e:
-            logger.error(f"Error saving active session: {e}")
-
-    def _create_new_session(self) -> str:
-        """
-        Create a new session and update the context.
-
-        Returns:
-            The new session ID or None if failed
-        """
-        try:
-            # Create a new context with a new session ID
-            self._ctx = Context.builder().workspace(self.workspace).initialize()
-
-            # Save the new session as active
-            self._save_active_session(self._ctx.session_id)
-
-            logger.info(f"Created new session: {self._ctx.session_id}")
-            return self._ctx.session_id
-        except Exception as e:
-            logger.error(f"Error creating new session: {e}")
-            return None
 
     def launch(self) -> None:
         """
@@ -207,82 +93,73 @@ class Chat:
 
         The method runs until explicitly terminated via command or signal.
         """
-        try:
-            # Setup signal handlers for graceful termination
-            self._setup_signal_handlers()
+        
+        # Set up signal handlers for graceful termination
+        self._setup_signal_handlers()
 
-            # Display welcome message
-            self._print_welcome_message()
+        # Display welcome message
+        self._print_welcome_message()
 
-            # Main chat loop
-            while True:
-                try:
-                    # Get user input
-                    user_input = self._get_user_input()
+        # Main chat loop
+        self.running = True
+        while True:
+            try:
+                # Get user input
+                user_input = self._get_user_input()
 
-                    # Reset interrupt counter on successful input
-                    self.interrupt_counter = 0
+                # Reset interrupt counter on successful input
+                self.interrupt_counter = 0
 
-                    # Check if this is a special command
-                    if user_input.startswith("/"):
-                        # Handle commands and check if we should continue
-                        should_continue = self._handle_command(user_input)
-                        if not should_continue:
-                            break
-                        continue
-
-                    # Skip empty inputs
-                    if not user_input.strip():
-                        continue
-
-                    # Process input with agent, including loaded files if present
-                    logger.info("Sending user input to agent")
-                    # Process user input
-                    response = self._ctx.agent.process(user_input)
-
-                    # Display the response
-                    self._display_response(response)
-
-                except KeyboardInterrupt:
-                    # Handle Ctrl+C properly
-                    current_time = time.time()
-
-                    # If user rapidly presses Ctrl+C twice within 1 second, exit
-                    if current_time - self.last_interrupt_time < 1:
-                        self.interrupt_counter += 1
-                        if self.interrupt_counter >= 2:
-                            self._console.print(
-                                "\n[yellow]Double interrupt detected. Exiting...[/yellow]"
-                            )
-                            break
-                    else:
-                        self.interrupt_counter = 1
-
-                    self.last_interrupt_time = current_time
-                    self._console.print(
-                        "\n[yellow]Press Ctrl+C again to exit or /exit to quit.[/yellow]"
-                    )
+                # Check if this is a special command
+                if user_input.startswith("/"):
+                    # Handle commands and check if we should continue
+                    should_continue = self._handle_command(user_input)
+                    if not should_continue:
+                        break
                     continue
-                except EOFError:
-                    # Handle Ctrl+D (EOF)
-                    self._console.print("\n[yellow]EOF detected. Exiting...[/yellow]")
-                    break
-                except Exception as e:
-                    # Handle any other exceptions within the loop
-                    error_msg = f"Error processing message: {str(e)}"
-                    logger.error(error_msg, exc_info=True)
-                    self._console.print(f"\n[bold red]Error:[/bold red] {error_msg}")
 
-            logger.info("Chat session ended")
+                # Skip empty inputs
+                if not user_input.strip():
+                    continue
 
-        except Exception as e:
-            # Handle any exceptions in the outer scope
-            logger.critical(f"Critical error in chat session: {e}", exc_info=True)
-            self._console.print(f"\n[bold red]Critical error:[/bold red] {str(e)}")
+                # Process input with agent, including loaded files if present
+                logger.info("Sending user input to agent")
+                # Process user input and display responses as they come
+                for response_chunk in self._ctx.agent.process(user_input):
+                    # Display each response chunk
+                    self._display_response(response_chunk)
 
-        finally:
-            # Log end of session
-            logger.info("Chat session ended")
+            except KeyboardInterrupt:
+                # Handle Ctrl+C properly
+                current_time = time.time()
+
+                # If user rapidly presses Ctrl+C twice within 1 second, exit
+                if current_time - self.last_interrupt_time < 1:
+                    self.interrupt_counter += 1
+                    if self.interrupt_counter >= 2:
+                        self._console.print(
+                            "\n[yellow]Double interrupt detected. Exiting...[/yellow]"
+                        )
+                        break
+                else:
+                    self.interrupt_counter = 1
+
+                self.last_interrupt_time = current_time
+                self._console.print(
+                    "\n[yellow]Press Ctrl+C again to exit or /exit to quit.[/yellow]"
+                )
+                continue
+            except EOFError:
+                # Handle Ctrl+D (EOF)
+                self._console.print("\n[yellow]EOF detected. Exiting...[/yellow]")
+                break
+            except Exception as e:
+                # Handle any other exceptions within the loop
+                error_msg = f"Error processing message: {str(e)}"
+                logger.error(error_msg, exc_info=True)
+                self._console.print(f"\n[red]Error: {str(e)}[/red]")
+
+        logger.info("Chat session ended")
 
     def _setup_signal_handlers(self) -> None:
         """
@@ -337,9 +214,13 @@ class Chat:
 
         # Add session information
         try:
-            welcome_text += f"Session: [magenta]{self._ctx.session_id}[/magenta]\n"
+            session_name = self._ctx.session_name or "unnamed"
+            session_id = self._ctx.session_id
+            display_text = session_name if self._ctx.session_name else session_id
+            welcome_text += f"Session: [magenta]{display_text}[/magenta]\n"
+            welcome_text += f"Session ID: [dim]{session_id}[/dim]\n"
         except Exception as e:
-            logger.warning(f"Could not retrieve session ID: {e}")
+            logger.warning(f"Could not retrieve session information: {e}")
 
         welcome_text += "Type [blue]/help[/blue] for available commands.\n"
         welcome_text += (
@@ -389,7 +270,6 @@ class Chat:
             logger.info("User requested exit")
             self._console.print("[yellow]Exiting chat session...[/yellow]")
             return False
-
         if cmd == "/help":
             self._show_help()
         elif cmd == "/debug":
@@ -398,17 +278,15 @@ class Chat:
             self._console.print(f"[yellow]Debug mode {status}[/yellow]")
             logger.info(f"Debug mode {status}")
         elif cmd == "/new-session":
-            old_session_id = self._ctx.session_id
-            new_session_id = self._create_new_session()
-            if new_session_id:
-                self._console.print(
-                    f"[green]🔄 Created new session: [bold]{self._ctx.session_id}[/bold][/green]"
-                )
-                self._console.print(
-                    f"[dim]Previous session was: {old_session_id}[/dim]"
-                )
-            else:
-                self._console.print(f"[red]Failed to create new session[/red]")
+            # Create a new session without a specific name
+            self.create_new_session()
+        elif cmd == "/list-sessions":
+            self._list_sessions()
+        elif cmd == "/switch-session":
+            if len(parts) < 2:
+                self._console.print("[red]Missing session name[/red]")
+                return True
+            self.switch_session(parts[1])
         else:
             self._console.print(f"[red]Unknown command: {cmd}[/red]")
             self._console.print("Type [blue]/help[/blue] for available commands.")
@@ -454,3 +332,18 @@ class Chat:
             # Fallback to plain text if markdown parsing fails
             logger.warning(f"Failed to render markdown: {e}")
             self._console.print(Panel(response, border_style="yellow", padding=(1, 2)))
+
+    
+    def switch_session(self, session_name: str) -> None:
+        """
+        Switch to an existing session.
+        
+        Args:
+            session_name: Name of the session to switch to
+        """
+        ctx = SessionManager.get_session(session_name)
+        if ctx is None:
+            self._console.print(f"[red]Session '{session_name}' not found[/red]")
+            return
+        self._ctx = ctx
+        self._console.print(f"[green]Switched to session: [bold]{ctx.session_name}[/bold][/green]")

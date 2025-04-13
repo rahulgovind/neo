@@ -175,7 +175,7 @@ def read(
         return f"Error reading file {path}: {str(e)}"
 
 
-def overwrite(workspace: str, path: str, content: str) -> Tuple[bool, int, int]:
+def overwrite(workspace: str, path: str, content: str, enable_lint: bool = True) -> Tuple[bool, int, int]:
     """
     Creates a new file or completely overwrites an existing file's content.
 
@@ -183,12 +183,14 @@ def overwrite(workspace: str, path: str, content: str) -> Tuple[bool, int, int]:
         workspace: Root workspace directory path
         path: Path to the file, relative to workspace
         content: New content for the file
+        enable_lint: Whether to fail on linting errors (default: True)
 
     Returns:
         Tuple of (success, lines_added, lines_deleted)
 
     Raises:
-        Various exceptions related to file operations and linting errors
+        Various exceptions related to file operations
+        RuntimeError: If linting fails and strict=True
     """
     # Normalize the path
     file_path = _normalize_path(workspace, path)
@@ -239,7 +241,7 @@ def overwrite(workspace: str, path: str, content: str) -> Tuple[bool, int, int]:
         # If file is new
         logger.info(f"Created file: {path} (+{new_lines} lines)")
 
-    # If we have lint warnings, raise an exception with the lint output
+    # If we have lint warnings, handle based on strict mode
     if lint_warnings:
         # Build a more informative error message
         error_msg = [
@@ -248,10 +250,15 @@ def overwrite(workspace: str, path: str, content: str) -> Tuple[bool, int, int]:
             f"Linting errors:",
             f"{lint_warnings}",
             "",
-            "Note: The file has been written despite linting errors.",
-            "Please fix the issues and update the file again.",
+            "Note: The file has been written despite linting errors."
         ]
-        raise RuntimeError("\n".join(error_msg))
+        
+        if strict:
+            error_msg.append("Please fix the issues and update the file again.")
+            raise RuntimeError("\n".join(error_msg))
+        else:
+            # Just log the warning but don't raise an exception
+            logger.warning("\n".join(error_msg))
 
     return True, lines_added, lines_deleted
 
