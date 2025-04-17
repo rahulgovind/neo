@@ -6,6 +6,7 @@ PyYAML>=6.0          # For YAML serialization of requests
 numpy>=1.24.0        # For numerical operations and embeddings
 chromadb>=0.4.0      # Vector database for semantic search
 sentence-transformers>=2.0.0  # For text embeddings
+jsonschema>=4.17.0   # For JSON schema validation and conversion
 
 # CLI and user interaction
 rich>=12.0.0  # Better terminal output

@@ -16,14 +16,14 @@ from contextlib import contextmanager
 from typing import Dict, Any, List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
-from src.core.constants import (
+from src.neo.core.constants import (
     COMMAND_START,
     COMMAND_END,
     STDIN_SEPARATOR,
     ERROR_PREFIX,
     SUCCESS_PREFIX,
 )
-from src.core.messages import _escape_special_chars, _unescape_special_chars
+from src.neo.core.messages import _escape_special_chars, _unescape_special_chars
 from src.utils.linters import lint_code, get_supported_file_types, LintError
 
 # Configure logging
@@ -175,7 +175,9 @@ def read(
         return f"Error reading file {path}: {str(e)}"
 
 
-def overwrite(workspace: str, path: str, content: str, enable_lint: bool = True) -> Tuple[bool, int, int]:
+def overwrite(
+    workspace: str, path: str, content: str, enable_lint: bool = True
+) -> Tuple[bool, int, int]:
     """
     Creates a new file or completely overwrites an existing file's content.
 
@@ -250,10 +252,10 @@ def overwrite(workspace: str, path: str, content: str, enable_lint: bool = True)
             f"Linting errors:",
             f"{lint_warnings}",
             "",
-            "Note: The file has been written despite linting errors."
+            "Note: The file has been written despite linting errors.",
         ]
-        
-        if strict:
+
+        if True:  # strict mode is always True
             error_msg.append("Please fix the issues and update the file again.")
             raise RuntimeError("\n".join(error_msg))
         else:

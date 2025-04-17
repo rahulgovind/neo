@@ -24,10 +24,9 @@ from flask import (
 )
 
 from src.core.model import Model
-from src.core.context import Context
+from src.core.session import Session
 from src.agent import Agent
 from src.core.shell import Shell
-from src.core import env
 from src.core.messages import Message, TextBlock
 from src.database import Database
 
@@ -45,11 +44,6 @@ app.secret_key = os.urandom(24)  # For session management
 app.config["SESSION_TYPE"] = "filesystem"
 app.config["SESSION_PERMANENT"] = True
 app.config["PERMANENT_SESSION_LIFETIME"] = datetime.timedelta(days=7)
-
-# Initialize the environment
-from src.core import env
-
-env.initialize()
 
 # Default system instructions for the agent
 DEFAULT_INSTRUCTIONS = """
@@ -121,10 +115,10 @@ class WebChat:
             Response from the agent
         """
         # Import context here to avoid circular imports
-        from src.core.context import new_context
+        from src.core.session import Session
         import os
 
-        with new_context(session_id=session_id, workspace=self.workspace) as ctx:
+        with Session(session_id=session_id, workspace=self.workspace) as ctx:
             # Make sure the session exists
             self.db.create_session(session_id, self.workspace)
 
@@ -170,14 +164,12 @@ class WebChat:
             )
 
             # Import context here to avoid circular imports
-            from src.core.context import new_context
+            from src.core.session import Session
             import os
 
             try:
                 logger.debug(f"Setting up context for session {session_id}")
-                with new_context(
-                    session_id=session_id, workspace=self.workspace
-                ) as ctx:
+                with Session(session_id=session_id, workspace=self.workspace) as ctx:
                     logger.debug(
                         f"Context setup successful for session {session_id}, getting messages"
                     )
@@ -218,12 +210,12 @@ class WebChat:
             List of session dictionaries
         """
         # Import context here to avoid circular imports
-        from src.core.context import new_context
+        from src.core.session import Session
         import os
         import uuid
 
         # Use a temporary session ID for this operation
-        with new_context(
+        with Session(
             session_id=str(uuid.uuid4()), workspace=os.path.expanduser("~")
         ) as ctx:
             return self.db.get_sessions()
@@ -283,12 +275,12 @@ def logs():
         return redirect(url_for("index"))
 
     # Initialize a context for Neo operations
-    from src.core.context import new_context
+    from src.core.session import Session
     import os
 
     session_id = session["session_id"]
 
-    with new_context(session_id=session_id, workspace=web_chat.workspace) as ctx:
+    with Session(session_id=session_id, workspace=web_chat.workspace) as ctx:
         log_files = _get_log_files(session_id)
 
         return render_template("logs.html", log_files=log_files, session_id=session_id)
@@ -301,12 +293,12 @@ def view_log(logger_name):
         return redirect(url_for("index"))
 
     # Initialize a context for Neo operations
-    from src.core.context import new_context
+    from src.core.session import Session
     import os
 
     session_id = session["session_id"]
 
-    with new_context(session_id=session_id, workspace=web_chat.workspace) as ctx:
+    with Session(session_id=session_id, workspace=web_chat.workspace) as ctx:
         log_entries = _get_log_entries(session_id, logger_name)
 
         return render_template(
@@ -564,10 +556,10 @@ def chat():
 
     try:
         # Initialize a context for Neo operations
-        from src.core.context import new_context
+        from src.core.session import Session
         import os
 
-        with new_context(session_id=session_id, workspace=web_chat.workspace) as ctx:
+        with Session(session_id=session_id, workspace=web_chat.workspace) as ctx:
             response = web_chat.process_message(session_id, user_message)
             return jsonify({"response": response, "session_id": session_id})
     except Exception as e:
@@ -607,8 +599,8 @@ def main():
     model = Model()
 
     # Set the model and shell in the environment
-    env.set_model(model)
-    env.set_shell(shell)
+    # env.set_model(model)
+    # env.set_shell(shell)
 
     # Run the Flask app
     app.run(host=args.host, port=args.port, debug=args.debug)

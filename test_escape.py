@@ -1,3 +1,5 @@
+"""Test suite for terminal escape sequence handling and special character escaping/unescaping."""
+
 import unittest
 from src.utils.files import _escape_special_chars, _unescape_special_chars
 from src.core.constants import (
@@ -10,6 +12,8 @@ from src.core.constants import (
 
 
 class TestEscapeUnescape(unittest.TestCase):
+    """Tests the _escape_special_chars and _unescape_special_chars functions."""
+
     def test_round_trip(self):
         """Test that escaping and then unescaping preserves the original string."""
         # Test strings with various special characters

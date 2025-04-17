@@ -181,7 +181,9 @@ AFTER
 
         # Execute the command
         result = self.execute_command(command_input)
-        self.assertTrue(result.success, f"Update file command should succeed: {result.error}")
+        self.assertTrue(
+            result.success, f"Update file command should succeed: {result.error}"
+        )
 
         # Read the updated file content
         with open(file_path, "r") as f:
@@ -225,7 +227,7 @@ AFTER
         # Read the updated file content
         with open(file_path, "r") as f:
             updated_content = f.read()
-        
+
         # Assert the content was updated correctly
         self.assertTrue(
             "import os" in updated_content,

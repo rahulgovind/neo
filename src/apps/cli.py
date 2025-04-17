@@ -10,13 +10,16 @@ import os
 import sys
 import argparse
 import logging
+import asyncio
 from typing import Dict, Any, Optional, List
+import traceback
 
 # Logging is configured in src/__init__.py when imported
-from src.core.model import Model
-from src.core.context import Context, ContextBuilder
-from src.agent.agent import Agent
-from src.core.shell import Shell
+from src.neo.session import Session
+from src.neo.agent.agent import Agent
+from src.neo.shell.shell import Shell
+from src.neo.service.service import Service
+
 from src.apps.chat import Chat
 
 # Configure logger for this module
@@ -41,7 +44,7 @@ class CLI:
 
         This method:
         1. Parses command-line arguments
-        2. Delegates to the appropriate Chat class methods based on the subcommand
+        2. Delegates to the appropriate Service class methods based on the subcommand
 
         It's the main entry point for the application.
         """
@@ -50,31 +53,73 @@ class CLI:
             args = cls._parse_args()
 
             # Execute the appropriate subcommand
-            if args.subcommand == 'chat':
-                # Start interactive chat session using Chat's class method
-                logger.info(f"Using workspace: {args.workspace}")
-                Chat.start_interactive(
-                    workspace=args.workspace,
-                    history_file=args.history_file,
-                    session_name=None  # Chat subcommand doesn't take a session parameter
+            if args.subcommand == "chat":
+                logger.info(
+                    f"Starting interactive chat for workspace: {args.workspace}"
                 )
-            elif args.subcommand == 'create-session':
-                # Create a new session using Chat's class method
-                logger.info(f"Using workspace: {args.workspace}")
-                session = Chat.create_new_session(workspace=args.workspace, session_name=args.session)
-                print(f"Session '{session.session_name}' created successfully")
-                print(f"Session ID: {session.session_id}")
-                print(f"Workspace: {args.workspace}")
-            elif args.subcommand == 'message':
-                # Process a single message using the Chat class method
-                # For message, we need to create a temporary workspace
-                Chat.message(message=args.message, workspace=os.getcwd(), session=args.session)
+                # Session creation is now handled within Chat class
+                chat_instance = Chat(
+                    workspace=args.workspace
+                )  # Instantiate with workspace
+                # Use try-except in case of async errors
+                try:
+                    chat_instance.launch()
+                except Exception as e:
+                    logger.error(f"Error in chat launch: {e}", exc_info=True)
+                    print(f"\nEncountered an error: {e}")
+
+            elif args.subcommand == "create-session":
+                # Create a new session using Service's async method
+                logger.info(
+                    f"Using workspace: {args.workspace} to create session '{args.session}'"
+                )
+                session = Service.create_session(
+                    session_name=args.session, workspace=args.workspace
+                )
+                print(
+                    f"Session '{session.session_name}' created successfully "
+                    + f"(Session ID: {session.session_id})"
+                )
+                print(f"Workspace: {session.workspace}")
+            elif args.subcommand == "message":
+                # Process a single message using the Service class method
+                session_id = None
+                
+                if args.session:
+                    logger.info(f"Processing message for session '{args.session}'")
+                    # If session is specified then try to find it by listing sessions and matching the name
+                    all_sessions = Service.list_sessions()
+                    
+                    for session in all_sessions:
+                        if session.session_name == args.session:
+                            session_id = session.session_id
+                            break
+                    
+                    if not session_id:
+                        print(f"Error: Session '{args.session}' not found.")
+                        logger.error(f"Session '{args.session}' not found for message command.")
+                        sys.exit(1)
+
+                # Use the Service.message method with the session_id
+                for message in Service.message(msg=args.message, session_id=session_id):
+                    print(message)
+            elif args.subcommand == "list-sessions":
+                logger.info("Listing persistent sessions.")
+                sessions = Service.list_sessions()
+                for session in sessions:
+                    print(
+                        f"Session ID: {session.session_id}, Name: {session.session_name}, Workspace: {session.workspace}"
+                    )
 
         except KeyboardInterrupt:
             # Handle Ctrl+C in the main thread
             logger.info("Application interrupted by user")
             print("\nExiting Neo CLI...")
             sys.exit(0)
+
+        except NotImplementedError as nie:
+            print(f"\nError: {nie}")
+            sys.exit(1)
 
         except Exception as e:
             # Log any unhandled exceptions
@@ -96,22 +141,24 @@ class CLI:
         )
 
         # Create subparsers for different commands
-        subparsers = parser.add_subparsers(dest="subcommand", help="Subcommand to run", required=True)
+        subparsers = parser.add_subparsers(
+            dest="subcommand", help="Subcommand to run", required=True
+        )
 
         # 1. Chat subcommand - interactive chat session
         chat_parser = subparsers.add_parser(
             "chat", help="Start an interactive chat session"
         )
+        chat_parser.add_argument("--workspace", "-w", default=os.getcwd(), help="Path to a code workspace directory (optional, defaults to current directory)")
         chat_parser.add_argument(
-            "workspace", help="Path to a code workspace directory"
-        )
-        chat_parser.add_argument(
-            "--history-file", type=str, help="Path to file for storing command history"
+            "--history-file",
+            type=str,
+            help="Path to file for storing command history (Not currently used by InteractiveChat)",
         )
 
         # 2. Create-session subcommand - create a new session
         create_session_parser = subparsers.add_parser(
-            "create-session", help="Create a new session"
+            "create-session", help="Create a new persistent session"
         )
         create_session_parser.add_argument(
             "--session", "-s", type=str, help="Name of the session to create"
@@ -122,20 +169,18 @@ class CLI:
 
         # 3. Message subcommand - process a single message
         message_parser = subparsers.add_parser(
-            "message", help="Process a single message in headless mode"
+            "message", help="Send a single message to a session (headless)"
         )
+        message_parser.add_argument("message", help="Message content to process")
         message_parser.add_argument(
-            "message", help="Message content to process"
-        )
-        message_parser.add_argument(
-            "--session", "-s", type=str, help="Name of the session to use"
+            "--session",
+            "-s",
+            type=str,
+            required=False,
+            help="Name of the session to use (optional, will create a temporary session if not provided)",
         )
 
         return parser.parse_args()
-        
-
-
-
 
 
 def main() -> None:
