@@ -1,0 +1,304 @@
+"""
+Message classes for representing conversation content.
+"""
+
+import json
+import re
+from typing import Any, Dict, List, Optional
+
+from src.neo.core.constants import (
+    COMMAND_END,
+    COMMAND_START,
+    ERROR_PREFIX,
+    STDIN_SEPARATOR,
+    SUCCESS_PREFIX,
+)
+
+
+class ContentBlock:
+    """Base class for different types of content in a message."""
+
+    def __str__(self) -> str:
+        return self.model_text()
+
+    def model_text(self) -> str:
+        raise NotImplementedError("Subclasses must implement model_text")
+
+    def display_text(self) -> str:
+        """Returns text suitable for display to the user."""
+        return self.model_text()
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the content block to a dictionary for serialization."""
+        raise NotImplementedError("Subclasses must implement to_dict")
+        
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ContentBlock":
+        """Create a content block from a dictionary."""
+        raise NotImplementedError("Subclasses must implement from_dict")
+        
+    @classmethod
+    def create_from_dict(cls, data: Dict[str, Any]) -> "ContentBlock":
+        """Factory method to create the appropriate ContentBlock subclass."""
+        block_type = data.get("type", "TextBlock")
+        
+        if block_type == "TextBlock":
+            return TextBlock.from_dict(data)
+        elif block_type == "CommandCall":
+            return CommandCall.from_dict(data)
+        elif block_type == "CommandResult":
+            return CommandResult.from_dict(data)
+        else:
+            # Fail on unknown block types
+            raise ValueError(f"Unknown content block type: {block_type}")
+
+
+class TextBlock(ContentBlock):
+    """Represents a text content block in a message."""
+
+    def __init__(self, text: str):
+        self._text = text
+
+    def model_text(self) -> str:
+        return self._text
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the TextBlock to a dictionary for serialization."""
+        return {
+            "type": "TextBlock",
+            "value": self._text
+        }
+        
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TextBlock":
+        """Create a TextBlock from a dictionary."""
+        return cls(data.get("value", ""))
+
+
+class CommandCall(ContentBlock):
+    """Represents a command call content block in a message."""
+
+    def __init__(self, content: str):
+        self._content = content
+
+    def model_text(self) -> str:
+        return self._content
+            
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the CommandCall to a dictionary for serialization."""
+        return {
+            "type": "CommandCall",
+            "value": self._content
+        }
+        
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CommandCall":
+        """Create a CommandCall from a dictionary."""
+        return cls(
+            content=data.get("value", "")
+        )
+
+
+def _escape_special_chars(content: str) -> str:
+    r"""
+    Replace special command characters with their escaped unicode representation.
+
+    Args:
+        content: The content to process
+
+    Returns:
+        Content with special characters replaced
+    """
+
+    # Escape function to replace special characters with \u{hex} format
+    def escape_special_chars(match):
+        char = match.group(0)
+        # Format the character's code point as a hex string - use raw string to avoid backslash escaping
+        return f"\\u{ord(char):x}"
+
+    # Create pattern of all special characters
+    special_chars = "".join(
+        [COMMAND_START, COMMAND_END, STDIN_SEPARATOR, ERROR_PREFIX, SUCCESS_PREFIX]
+    )
+    pattern = f"[{re.escape(special_chars)}]"
+
+    # Escape all special characters in the content
+    result = re.sub(pattern, escape_special_chars, content)
+
+    return result
+
+
+def _unescape_special_chars(content: str) -> str:
+    r"""
+    Reverse the escaping process, converting \u{hex} escape sequences back to special characters.
+    Only converts escape sequences for our specific special characters.
+
+    Args:
+        content: The content to process
+
+    Returns:
+        Content with escape sequences converted back to special characters
+    """
+    if content is None:
+        return ""
+
+    # Create a mapping of hex codes to special characters
+    hex_to_char = {
+        f"{ord(COMMAND_START):x}": COMMAND_START,
+        f"{ord(COMMAND_END):x}": COMMAND_END,
+        f"{ord(STDIN_SEPARATOR):x}": STDIN_SEPARATOR,
+        f"{ord(ERROR_PREFIX):x}": ERROR_PREFIX,
+        f"{ord(SUCCESS_PREFIX):x}": SUCCESS_PREFIX,
+    }
+
+    # Function to replace only specific escape sequences
+    def unescape_specific_chars(match):
+        # Extract the hex code
+        hex_code = match.group(1)
+        # Only replace if it's one of our special characters
+        if hex_code in hex_to_char:
+            return hex_to_char[hex_code]
+        # Otherwise keep the original
+        return match.group(0)
+
+    # Pattern to match our specific escape sequences
+    hex_codes = "|".join(hex_to_char.keys())
+    pattern = f"\\\\u({hex_codes})"
+
+    # Replace only our specific escaped sequences
+    result = re.sub(pattern, unescape_specific_chars, content)
+
+    return result
+
+
+class CommandResult(ContentBlock):
+    """Represents a command result content block in a message."""
+
+    def __init__(
+        self,
+        content: str,
+        success: bool,
+        error: Optional[Exception] = None,
+        summary: Optional[str] = None,
+        result: Optional[Any] = None,
+    ):
+        self._text = content  # Keep TextBlock compatibility
+        self.content = content
+        self.success = success
+        self.error = error
+        self.summary = summary
+        self.result = result
+
+    def model_text(self) -> str:
+        prefix = SUCCESS_PREFIX if self.success else ERROR_PREFIX
+        # Escape the content before formatting it in the output string
+        escaped_content = _escape_special_chars(str(self.content))
+        return f"{prefix}{escaped_content}{COMMAND_END}"
+
+    def display_text(self) -> str:
+        """Returns the summary if available, otherwise returns the text."""
+        if self.summary is not None:
+            return self.summary
+        return self.model_text()
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the CommandResult to a dictionary for serialization.
+        Note: error and result are intentionally excluded.
+        """
+        return {
+            "type": "CommandResult",
+            "value": self.content,
+            "success": self.success,
+            "summary": self.summary
+        }
+        
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CommandResult":
+        """Create a CommandResult from a dictionary."""
+        return cls(
+            content=data.get("value", ""),
+            success=data.get("success", True),
+            summary=data.get("summary")
+        )
+
+
+class Message:
+    """
+    Represents a message in the conversation with role and content blocks.
+    """
+
+    def __init__(
+        self,
+        role: str,
+        content: List[ContentBlock] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        self.role = role
+        self.content = content or []
+        self.metadata = metadata or {}
+
+    def add_content(self, content: ContentBlock) -> None:
+        self.content.append(content)
+
+    def has_command_executions(self) -> bool:
+        return any(isinstance(block, CommandCall) for block in self.content)
+
+    def get_command_calls(self) -> List[CommandCall]:
+        return [block for block in self.content if isinstance(block, CommandCall)]
+
+    def text(self) -> str:
+        """Get all text content from the message, joined with newlines."""
+        text_parts = [block.model_text() for block in self.content]
+        return "\n".join(text_parts)
+        
+    def model_text(self) -> str:
+        """Get all model text content from the message, joined with newlines."""
+        text_parts = [block.model_text() for block in self.content]
+        return "\n".join(text_parts)
+
+    def display_text(self) -> str:
+        """Get all display text content from the message, joined with newlines."""
+        text_parts = [block.display_text() for block in self.content]
+        return "\n".join(text_parts)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert Message to a dictionary for serialization."""
+        return {
+            "role": self.role,
+            "content": [block.to_dict() for block in self.content],
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Message":
+        """Create Message from a dictionary."""
+        content_blocks = []
+        for item in data.get("content", []):
+            content_blocks.append(ContentBlock.create_from_dict(item))
+
+        return cls(
+            role=data.get("role", "user"),
+            content=content_blocks,
+            metadata=data.get("metadata", {}),
+        )
+
+    def copy(self, metadata: Optional[Dict[str, Any]] = None) -> "Message":
+        return Message(
+            self.role,
+            self.content.copy(),
+            metadata if metadata else self.metadata.copy(),
+        )
+
+    def __str__(self) -> str:
+        """
+        Create a properly formatted string representation of the message.
+        Handles multi-line content and preserves formatting of each content block.
+        """
+        parts = []
+        for block in self.content:
+            block_str = str(block)
+            if block_str:
+                parts.append(block_str)
+
+        content_str = "\n".join(parts)
+        return f"[{self.role}] {content_str}"
