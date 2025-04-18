@@ -10,7 +10,7 @@ jsonschema>=4.17.0   # For JSON schema validation and conversion
 
 # CLI and user interaction
 rich>=12.0.0  # Better terminal output
-prompt_toolkit>=3.0.0  # Interactive command-line interface
+prompt_toolkit>=3.0.50  # Interactive command-line interface
 
 # Web application
 flask==2.3.3  # Web framework

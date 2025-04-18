@@ -4,7 +4,12 @@ Message classes for representing conversation content.
 
 import json
 import re
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+# Use forward references to avoid circular imports
+if TYPE_CHECKING:
+    from src.neo.shell.shell import ParsedCommand
 
 from src.neo.core.constants import (
     COMMAND_END,
@@ -14,6 +19,22 @@ from src.neo.core.constants import (
     SUCCESS_PREFIX,
 )
 
+from typing import Union
+
+# Define OutputType
+class PrimitiveOutputType:
+    RAW = "raw"
+
+OutputType = Union[PrimitiveOutputType, Dict[str, Any]]
+
+@dataclass
+class ParsedCommand:
+    """
+    Represents a parsed command with name, parameters, and optional data.
+    """
+    name: str
+    parameters: Dict[str, Any]
+    data: Optional[str] = None
 
 class ContentBlock:
     """Base class for different types of content in a message."""
@@ -48,6 +69,8 @@ class ContentBlock:
             return CommandCall.from_dict(data)
         elif block_type == "CommandResult":
             return CommandResult.from_dict(data)
+        elif block_type == "StructuredOutput":
+            return StructuredOutput.from_dict(data)
         else:
             # Fail on unknown block types
             raise ValueError(f"Unknown content block type: {block_type}")
@@ -74,21 +97,48 @@ class TextBlock(ContentBlock):
         """Create a TextBlock from a dictionary."""
         return cls(data.get("value", ""))
 
+class StructuredOutput(ContentBlock):
+    """Represents a structured output content block in a message."""
+
+    def __init__(self, content: str, value: Optional[Any] = None):
+        self.content = content
+        self.value = value
+    
+    def model_text(self) -> str:
+        return self.content
+        
+    def display_text(self) -> str:
+        return str(self.value)
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the StructuredOutput to a dictionary for serialization."""
+        return {
+            "type": "StructuredOutput",
+            "content": self.content
+        }
+        
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "StructuredOutput":
+        """Create a StructuredOutput from a dictionary."""
+        return cls(
+            content=data.get("content", ""),
+        )
 
 class CommandCall(ContentBlock):
     """Represents a command call content block in a message."""
 
-    def __init__(self, content: str):
-        self._content = content
+    def __init__(self, content: str, parsed_cmd: Optional['ParsedCommand'] = None):
+        self.content = content
+        self.parsed_cmd = parsed_cmd
 
     def model_text(self) -> str:
-        return self._content
+        return self.content
             
     def to_dict(self) -> Dict[str, Any]:
         """Convert the CommandCall to a dictionary for serialization."""
         return {
             "type": "CommandCall",
-            "value": self._content
+            "value": self.content
         }
         
     @classmethod
@@ -250,6 +300,12 @@ class Message:
         """Get all text content from the message, joined with newlines."""
         text_parts = [block.model_text() for block in self.content]
         return "\n".join(text_parts)
+    
+    def structured_output(self) -> Optional[StructuredOutput]:
+        for block in self.content:
+            if isinstance(block, StructuredOutput):
+                return block
+        return None
         
     def model_text(self) -> str:
         """Get all model text content from the message, joined with newlines."""

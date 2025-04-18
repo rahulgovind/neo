@@ -51,11 +51,11 @@ The Model component provides an abstraction over the LLM client API:
 - Supports auto-execution of multiple commands in sequence
 - Extracts command calls from LLM responses
 
-#### Commands (src/core/commands/)
+#### Commands (src/neo/commands/)
 
 Neo implements a consistent command framework for interacting with the file system and other resources:
 
-- Base `Command` class (src/core/command.py) provides a unified interface for all commands
+- Base `Command` class (src/neo/shell/command.py) provides a unified interface for all commands
 - Commands use a consistent CLI-like syntax for parameter handling
 - Each command includes rich documentation and usage examples with formatted terminal display
 - Commands provide structured error handling for reliable execution
@@ -68,44 +68,77 @@ Available commands include:
   - Flexible line range selection (--from, --until)
   - Output limiting with configurable maximum lines (--limit)
   - Support for negative indices to count from end of file
-  - Special handling for ~/.neo directory access
+  - Special handling for NEO_HOME directory access
+  - Workspace-aware path resolution for security
   - Graceful error handling for common file access issues
 
 - **`write_file`** (WriteFileCommand): Create or overwrite files with provided content:
   - Automatic parent directory creation when needed
   - Support for relative and absolute paths within workspace
-  - Returns line addition/deletion statistics
-  - Integration with code linting system
+  - Returns line addition/deletion statistics and success status
+  - Workspace-aware path handling for security
+  - Optional linting support for code files
 
 - **`update_file`** (UpdateFileCommand): Apply changes to files using a structured diff syntax:
-  - Supports multiple operation types (@UPDATE, @DELETE, @INSERT)
-  - Sequential application of diff chunks
-  - Model-assisted fallback for complex changes or when diff can't be applied
-  - Detailed error reporting and recovery
+  - Supports multiple operation types (@UPDATE, @DELETE)
+  - Sequential application of diff chunks from top to bottom
+  - @@BEFORE and @@AFTER subsections for defining changes
+  - Model-assisted fallback for complex changes (with optional disable flag)
+  - Detailed error reporting and recovery mechanisms
   - Preserves file formatting and style
 
 - **`neogrep`** (NeoGrepCommand): Search for patterns in files:
+  - Delegates to the system grep command for efficient searching
   - Case-sensitive and case-insensitive searching (-i/--ignore-case)
   - File pattern filtering to limit search scope (-f/--file-pattern)
   - Context line display around matches (-C/--context)
+  - Workspace-aware path resolution
   - Clean and structured output format
 
 - **`neofind`** (NeoFindCommand): Locate files and directories:
+  - Delegates to the system find command for efficient searching
   - Name pattern filtering (-n/--name)
   - File type filtering for files or directories (-t/--type)
-  - Workspace-aware search paths
+  - Workspace-aware search paths for security
+  - Comprehensive error handling and reporting
 
 - **`bash`** (BashCommand): Execute arbitrary shell commands as a fallback:
   - Maintains a persistent shell session across command invocations
   - Captures both standard output and error streams
+  - Exit code capture for proper error reporting
   - Graceful handling of shell termination and error conditions
   - Special handling for exit command
+  - Workspace-aware execution environment
   - Should only be used when specialized commands are insufficient
+
+- **`output`** (StructuredOutputCommand): Validate and structure command output data:
+  - Used for outputting structured data in various formats
+  - Supports raw text output for code snippets
+  - Supports JSON schema validation for complex data structures
+  - Provides examples in documentation for different output formats
+  - Primarily designed for internal use by the LLM
 
 The command architecture follows these design principles:
 - **Command Pattern**: Each command implements:
-  - A `template()` method that defines parameters and documentation
-  - A `process()` method that implements the command's functionality
+  - A `template()` method that returns a CommandTemplate with parameters and documentation
+  - A `process()` method that takes session/context, args, and optional data parameters
+  - Returns a CommandResult with content, success status, and operation summary
+
+The command framework also provides:
+- **CommandParameter**: Dataclass for defining command parameters with validation
+  - Support for required vs. optional parameters
+  - Positional parameters and flag arguments (-f, --flag)
+  - Default values and hidden parameter options
+
+- **CommandTemplate**: Defines a command's structure and documentation
+  - Generates formatted manual pages with NAME, SYNOPSIS, DESCRIPTION sections
+  - Provides consistent OPTIONS and EXAMPLES documentation
+  - Supports command data input via STDIN-like pipe syntax
+
+- **CommandParser**: Handles parsing of command strings into structured arguments
+  - Processes arguments based on parameter definitions
+  - Handles quoted values and special characters
+  - Separates command arguments from piped data
 - **Consistent Command Interface**: All commands follow a unified model with CLI-like syntax
 - **Rich Documentation**: Documentation includes descriptions, parameter details, and interactive examples
 - **Robust Error Handling**: Commands provide detailed error feedback to users and system components
@@ -162,6 +195,28 @@ Neo integrates code quality checks directly into file operations:
 3. **IDE Integration**: Extensions for popular IDEs like VSCode or JetBrains
 4. **Collaborative Mode**: Support for multiple users working with the same assistant
 5. **Version Control Integration**: Direct integration with Git for tracking changes
+
+### Service Layer (src/neo/service/)
+
+The Service layer provides a higher-level API for session management and persistent storage:
+
+- **Service** (src/neo/service/service.py): Provides core service functionalities for session management and messaging
+  - Creates and manages sessions with persistent state
+  - Processes messages through the appropriate agent
+  - Supports temporary and named sessions
+  - Provides session listing and retrieval capabilities
+
+- **SessionManager** (src/neo/service/session_manager.py): Manages session state persistence
+  - Maps session names to session IDs
+  - Tracks temporary and permanent sessions
+  - Provides session creation, retrieval, and listing
+  - Maintains last active session information
+
+- **Database** (src/neo/service/database/): Implements persistent storage for sessions
+  - Uses SQLite for storing session metadata
+  - SessionRepository provides CRUD operations for sessions
+  - Implements connection pooling with singleton pattern
+  - Automatic schema creation and migration
 
 ### Additional Components
 

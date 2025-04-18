@@ -7,6 +7,7 @@ import logging
 import os
 from typing import Optional, TYPE_CHECKING
 from src.neo.exceptions import FatalError
+from src import NEO_HOME
 
 # For type checking only - not imported at runtime
 if TYPE_CHECKING:
@@ -86,8 +87,8 @@ class Session:
 
     @property
     def internal_session_dir(self) -> str:
-        """Get the internal session directory path (~/.neo/<session_id>)."""
-        return os.path.expanduser(f"~/.neo/{self.session_id}")
+        """Get the internal session directory path (<NEO_HOME>/<session_id>)."""
+        return os.path.expanduser(f"{NEO_HOME}/{self.session_id}")
 
     @property
     def agent(self) -> "Agent":

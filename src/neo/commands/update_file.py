@@ -44,7 +44,7 @@ class UpdateFileCommand(Command):
                 
                 The diff format uses the following section types:
                 - @DELETE - For lines to be deleted
-                - @UPDATE - For lines to be updated, with BEFORE and AFTER subsections
+                - @UPDATE - For lines to be updated, with @@BEFORE and @@AFTER subsections
                 
                 Each line in a section follows this format:
                 <line_number>:<content>
@@ -54,9 +54,9 @@ class UpdateFileCommand(Command):
                 - Diff chunks modifying earlier lines in the file should appear earlier in the sequence
                 - Each new section starts with @DELETE or @UPDATE
                 - @DELETE sections specify lines to be removed from the file
-                - @UPDATE sections must contain both BEFORE and AFTER subsections
-                - Line numbers in an @UPDATE's AFTER section typically match the BEFORE section
-                - Additional lines in the AFTER section will be inserted after the updated lines
+                - @UPDATE sections must contain both @@BEFORE and @@AFTER subsections
+                - Line numbers in an @UPDATE's @@AFTER section typically match the @@BEFORE section
+                - Additional lines in the @@AFTER section will be inserted after the updated lines
                 - Different sections should not overlap in the lines they modify
                 - Line numbers always correspond to the original file contents
             """
@@ -88,8 +88,8 @@ class UpdateFileCommand(Command):
                 3:Third line
                 4:Fourth line
                 
-                ▶update_file delete_example.txt｜Remove the second line
-                @DELETE
+                ▶update_file delete_example.txt｜
+                @DELETE Remove the second line
                 2:Line to be deleted
                 ■
                 ✅File updated successfully■
@@ -105,11 +105,11 @@ class UpdateFileCommand(Command):
                 2:    # Function implementation
                 3:    return True
                 
-                ▶update_file update_example.py｜Update function name
-                @UPDATE
-                BEFORE
+                ▶update_file update_example.py｜
+                @UPDATE Update function name
+                @@BEFORE
                 1:def old_function():
-                AFTER
+                @@AFTER
                 1:def new_function():
                 ■
                 ✅File updated successfully■
@@ -132,33 +132,32 @@ class UpdateFileCommand(Command):
                 9:// Export configuration
                 10:module.exports = config;
                 
-                ▶update_file config.js｜Update configuration settings - applied in sequence
-                # The following diff chunks are applied in sequence from top to bottom
-                # Chunks modifying earlier lines should appear earlier in the sequence
-                
-                # First operation: Update the host and port (lines 3-4)
-                @UPDATE
-                BEFORE
+                ▶update_file config.js｜
+                @UPDATE Update configuration settings
+                @@BEFORE
                 3:    host: 'localhost',
                 4:    port: 8080,
-                AFTER
+                @@AFTER
                 3:    host: 'production.example.com',
                 4:    port: 443,
                 
-                # Second operation: Insert secure settings (lines 7-8)
-                @INSERT
+                @UPDATE Insert secure settings
+                @@BEFORE
+                6:    timeout: 30000
+                7:};
+                @@AFTER
+                6:    timeout: 30000,
                 7:    secure: true,
                 8:    retryCount: 3,
+                9:};
                 
-                # Third operation: Delete the export comment (line 9)
-                @DELETE
+                @DELETE Delete the export comment
                 9:// Export configuration
                 
-                # Fourth operation: Update the export statement (line 10+)
                 @UPDATE
-                BEFORE
+                @@BEFORE
                 10:module.exports = config;
-                AFTER
+                @@AFTER
                 10:// Add environment-specific overrides
                 11:if (process.env.NODE_ENV === 'development') {
                 12:    config.host = 'localhost';
@@ -251,12 +250,11 @@ class UpdateFileCommand(Command):
                 return CommandResult(
                     content=f"File not found: {file_path}",
                     success=False,
-                    error=f"File not found: {file_path}",
-                    summary=f"Failed to update {file_name}: File not found"
+                    summary=f"Failed to update {file_name}: File not found",
                 )
-                
+
             # Read the file content
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 file_content = f.read()
             # Apply the merge with the diff
             updated_content = merge(file_content, diff_text)
@@ -276,23 +274,29 @@ class UpdateFileCommand(Command):
                     content="File updated successfully", success=True, summary=summary
                 )
             else:
-                return CommandResult(success=False, error=write_result.error)
+                return CommandResult(
+                    success=False,
+                    content=str(write_result.error),
+                    error=write_result.error,
+                )
 
         except RuntimeError as e:
             if bool(args.get("disable_model_fallback")):
                 logger.warning(f"Disabling model fallback: {str(e)}")
                 return CommandResult(
-                    success=False, error=str(e), summary="Model fallback disabled"
+                    success=False,
+                    content=str(e),
+                    error=e,
+                    summary="Model fallback disabled",
                 )
 
             # Return a failure with the error details
             error_message = str(e)
             logger.warning(f"Merge application failed: {error_message}.")
-            
+
             file_name = os.path.basename(file_path)
             return CommandResult(
                 content=f"Failed to update file: {error_message}",
                 success=False,
-                error=f"Failed to update file: {error_message}",
-                summary=f"Failed to update {file_name}: {error_message}"
+                summary=f"Failed to update {file_name}: {error_message}",
             )

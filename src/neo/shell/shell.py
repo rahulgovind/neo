@@ -6,10 +6,11 @@ It acts as a central hub for executing commands by name.
 """
 
 import logging
-from dataclasses import dataclass
-from typing import Dict, Any, List, Optional
+import jsonschema
+import json
+from typing import Dict, Any, List, Optional, Union
 
-from src.neo.core.messages import CommandResult, CommandCall
+from src.neo.core.messages import CommandResult, CommandCall, StructuredOutput, ParsedCommand, OutputType, PrimitiveOutputType
 from src.neo.shell.command import Command
 from src.neo.commands.read_file import ReadFileCommand
 from src.neo.commands.write_file import WriteFileCommand
@@ -19,19 +20,10 @@ from src.neo.commands.find import NeoFindCommand
 from src.neo.commands.bash import BashCommand
 from src.neo.core.constants import COMMAND_END
 from src.neo.session import Session
+import traceback
 
 # Configure logging
 logger = logging.getLogger(__name__)
-
-@dataclass
-class ParsedCommand:
-    """
-    Represents a parsed command with name, parameters, and optional data.
-    """
-
-    name: str
-    parameters: Dict[str, Any]
-    data: Optional[str] = None
 
 class Shell:
     """
@@ -122,24 +114,97 @@ class Shell:
 
     def validate(
         self, command_input: str
-    ) -> CommandResult:
-        """
-        Validate a command with the given parameters and data.
+    ) -> None:
+        parsed_cmd = self.parse(command_input)
+        command = self.get_command(parsed_cmd.name)
+        command.validate(self._session, parsed_cmd.parameters, parsed_cmd.data)
 
-        Args:
-            command_input: Command input string to validate
+    def _validate_structured_output(self, data, output_schema: OutputType) -> None:
+        if output_schema == PrimitiveOutputType.RAW:
+            return
+        jsonschema.validate(instance=data, schema=output_schema)
 
-        Returns:
-            CommandResult object with success/failure status, result/error, and optional summary
-        """
-        try:
-            parsed_cmd = self.parse(command_input)
-            command = self.get_command(parsed_cmd.name)
-            command.validate(self._session, parsed_cmd.parameters, parsed_cmd.data)
-            return CommandResult(content="Command is valid", success=True)
-        except Exception as e:
-            return CommandResult(content=str(e), success=False, error=e)
+    def parse_command_call(self, command_call: CommandCall, output_schema: Optional[OutputType] = None) -> Union[CommandCall, StructuredOutput]:
+        # Extract command content without markers
+        command_content = command_call.content[1:-1]
+        parsed_cmd = self.parse(command_content)
+        
+        if parsed_cmd.name == "output":
+            # Get the data portion of the command
+            data = parsed_cmd.data
+            
+            if output_schema == PrimitiveOutputType.RAW:
+                # For raw output, use the data directly
+                return StructuredOutput(command_call.content, data)
+            elif data:
+                # For JSON schema, parse the data as JSON if it exists
+                try:
+                    parsed_data = json.loads(data)
+                    return StructuredOutput(command_call.content, parsed_data)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse JSON data: {e}")
+                    # Return the original command call if JSON parsing fails
+                    return command_call
+        
+        # Return the original command call for non-structured-output commands
+        return CommandCall(
+            content=command_call.content,
+            parsed_cmd=parsed_cmd
+        )
+        
+    def validate_command_calls(
+        self, command_calls: List[CommandCall], output_schema: Optional[OutputType] = None
+    ) -> List[CommandResult]:
+        validation_failures = []
+        # Execute each command and collect the results
+        num_standard_command_calls = 0
+        num_structured_output_calls = 0
 
+        for cmd_call in command_calls:
+            if not cmd_call.content.endswith(COMMAND_END):
+                validation_failure = CommandResult(
+                    content=f"{cmd_call.content} - Command call missing end marker",
+                    success=False,
+                )
+                validation_failures.append(validation_failure)
+                continue
+
+            # Validate the command
+            try:
+                parsed_cmd = self.parse(cmd_call.content[1:-1])
+                command = self.get_command(parsed_cmd.name)
+                command.validate(self._session, parsed_cmd.parameters, parsed_cmd.data)
+                if parsed_cmd.name == "output":
+                    num_structured_output_calls += 1
+                else:
+                    num_standard_command_calls += 1
+                if num_structured_output_calls > 0 and output_schema is None:
+                    raise ValueError(f"{cmd_call.content} - A structured output was not requested")
+                if num_structured_output_calls > 0 and num_standard_command_calls > 0:
+                    raise ValueError("Structured output cannot be combined with other commands")
+                if num_structured_output_calls > 1:
+                    raise ValueError("Only one structured output command is allowed")
+                    
+            except Exception as e:
+                validation_failure = CommandResult(
+                    content=f"{cmd_call.content} - Command is not valid",
+                    success=False,
+                    error=e
+                )
+                validation_failures.append(validation_failure)
+                continue
+
+        for validation_failure in validation_failures:
+            if validation_failure.success:
+                continue
+
+            error = validation_failure.content + (
+                f"\n{traceback.format_exception(validation_failure.error)}" if validation_failure.error else ""
+            )
+            logger.error(error)
+
+        return validation_failures
+        
     def execute(
         self, command_name: str, parameters: Dict[str, Any], data: Optional[str] = None
     ) -> CommandResult:
@@ -221,6 +286,15 @@ class Shell:
                 error_result = CommandResult(content=str(e), success=False, error=e)
                 result_blocks.append(error_result)
 
+        for result in result_blocks:
+            if result.success:
+                logger.info(f"Command result: {result.content}")
+            else:
+                error_message = result.content + (
+                    f"\n{traceback.format_exception(result.error)}" if result.error else ""
+                )
+                logger.error(f"Command failed: {error_message}")
+
         return result_blocks
 
     def describe(self, command_name: str) -> str:
@@ -248,7 +322,7 @@ class Shell:
         self.register_command(BashCommand())
         
         # Register structured output command - import locally to avoid circular imports
-        from src.neo.commands.structured_output import StructuredOutput
-        self.register_command(StructuredOutput())
+        from src.neo.commands.structured_output import StructuredOutputCommand
+        self.register_command(StructuredOutputCommand())
 
         logger.debug(f"Registered built-in commands: {', '.join(self.list_commands())}")

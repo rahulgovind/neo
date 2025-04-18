@@ -10,6 +10,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from src import NEO_HOME
 
 # Load environment variables
 # load_dotenv()  # This line is commented out because load_dotenv is not imported
@@ -23,10 +24,7 @@ class Database:
 
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
-            # Use ~/.neo/state.db as default
-            home_dir = str(Path.home())
-            neo_dir = os.path.join(home_dir, ".neo")
-            self.db_path = os.path.join(neo_dir, "state.db")
+            self.db_path = os.path.join(NEO_HOME, "state.db")
         else:
             self.db_path = db_path
 

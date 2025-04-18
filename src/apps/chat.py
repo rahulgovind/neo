@@ -11,524 +11,339 @@ import logging
 import signal
 import time
 import sys
-import asyncio
-from typing import Optional, Any, Dict
+import threading
+import queue
+from typing import Optional, Any, Dict, List, Iterator, Union
+from datetime import datetime
 
+from attr import dataclass
+from rich import align
+from rich.align import Align
 from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
 from rich.markdown import Markdown
 from prompt_toolkit.key_binding import KeyBindings
-from rich.panel import Panel
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
-
+from prompt_toolkit.formatted_text import HTML
+from rich.control import Control
+from src import NEO_HOME
 from src.neo.service.service import Service
-from src.neo.core.messages import Message
+from src.neo.core.messages import Message, TextBlock
+from src.neo.service.session_manager import SessionInfo
+from rich.table import Table
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 
-class Chat:
-    """Manages an interactive chat session in the terminal."""
+COMMANDS = {
+    "/exit": "Exit the chat session",
+    "/help": "Show this help message",
+    "/new-session": "Create a new session (requires workspace)",
+    "/list": "List persistent sessions",
+    "/switch": "Switch to a different persistent session",
+    "/info": "Show current session info",
+}
 
-    COMMANDS = {
-        "/exit": "Exit the chat session",
-        "/help": "Show this help message",
-        "/debug": "Toggle debug mode",
-        "/new-session": "Create a new session (requires workspace)",
-        "/list-sessions": "List persistent sessions",
-        "/switch-session": "Switch to a different persistent session",
-        "/info": "Show current session info",
-    }
+# Initialize console with soft-wrapping and highlighting
+console = Console(soft_wrap=True, highlight=True)
 
-    def __init__(self, workspace: str):
-        """Initializes the interactive chat session (synchronous part). Takes only workspace."""
-        self._console = Console()
-        self._workspace: str = (
-            workspace  # Workspace is now mandatory for initialization
-        )
-        # Session ID and name are now set during async initialization
-        self._session_id: Optional[str] = None
-        self._session_name: Optional[str] = None
-        self._message_stream_task: Optional[asyncio.Task] = None
-        self._is_exiting: bool = False
-        self._running = False
-        self.debug_mode = False
-        self.interrupt_counter = 0
-        self.last_interrupt_time = time.time()
+# History is stored in NEO_HOME/cli_chat_history
+history_file = os.path.join(NEO_HOME, "cli_chat_history")
 
-        # Command mapping
-        self._commands = {
-            "/exit": "Exit the chat session",
-            "/help": "Show this help message",
-            "/debug": "Toggle debug mode",
-            "/new-session": "Create a new session (requires workspace)",
-            "/list-sessions": "List persistent sessions",
-            "/switch-session": "Switch to a different persistent session",
-            "/info": "Show current session info",
-        }
+prompt_session = PromptSession(
+    message=HTML("\n<ansigreen>></ansigreen> "),
+    history=FileHistory(history_file),
+    auto_suggest=AutoSuggestFromHistory(),
+)
 
-        logger.info(
-            f"Chat initialized for workspace {workspace}. Call launch() to create session and start."
-        )
+session_id = None
+session_name = None
+workspace = None
 
-    def _initialize(self) -> None:
-        """Initialization steps, including creating the temporary session."""
-        logger.info(
-            f"Starting initialization for chat in workspace {self._workspace}..."
-        )
+# Track interrupt state
+interrupt_counter = 0
+last_interrupt_time = 0
 
-        # 1. Get the last active session or create a new default one
-        try:
-            logger.info("Looking for last active session...")
-            session_obj = Service.get_last_active_session()
-            
-            if session_obj:
-                # Use the last active session
-                self._session_id = session_obj.session_id
-                self._session_name = session_obj.session_name
-                logger.info(f"Using last active session: {self._session_name} (ID: {self._session_id})")
-            else:
-                # Create a new default session named 'session-1'
-                logger.info(f"No active session found. Creating default session for workspace: {self._workspace}")
-                session_obj = Service.create_session(
-                    session_name="session-1",
-                    workspace=self._workspace
-                )
-                self._session_id = session_obj.session_id
-                self._session_name = session_obj.session_name
-                logger.info(f"Created default session: {self._session_name} (ID: {self._session_id})")
-        except Exception as e:
-            logger.error(
-                f"Fatal: Failed to create temporary session: {e}", exc_info=True
-            )
-            print(f"\nError: Could not create a chat session. Aborting.")
-            # Set exiting flag or raise to prevent launch from continuing?
-            self._is_exiting = True  # Prevent launch loop
-            return  # Stop initialization
+message_layout = None
 
-        # 2. Get session state (might be minimal for temporary, but good practice)
-        try:
-            session_info = Service.get_session(self._session_id)
-            if session_info and session_info.session_name:
-                # If info exists and has a name (e.g., if temporary becomes persistent later?)
-                self._session_name = session_info.session_name
-                # Ensure workspace consistency
-                if self._workspace != session_info.workspace:
-                    logger.warning(
-                        f"Session workspace '{session_info.workspace}' differs from initial '{self._workspace}'. Using initial."
-                    )
-                    # Stick with the workspace the Chat was initialized with
-            else:
-                logger.info(
-                    f"Using default name '{self._session_name}' for session {self._session_id}."
-                )
-        except Exception as e:
-            logger.error(
-                f"Error getting session info for {self._session_id}: {e}",
-                exc_info=True,
-            )
-            # Keep the placeholder name
+def _update_session(session_info: SessionInfo) -> None:
+    global session_name, session_id, workspace
+    session_name = session_info.session_name
+    session_id = session_info.session_id
+    workspace = session_info.workspace
 
-        # 3. Setup history file
-        history_dir = os.path.join(os.path.expanduser("~"), ".neo")
-        os.makedirs(history_dir, exist_ok=True)
-        history_file = os.path.join(history_dir, "neo_chat_history.txt")
-        try:
-            if not os.path.exists(history_file):
-                with open(history_file, "w") as f:
-                    f.write("")
-        except Exception as e:
-            logger.error(f"Error ensuring history file exists {history_file}: {e}")
+def print_message(message: Message) -> None:
+    """Display a message with appropriate formatting based on its role and content."""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    
+    # Determine style based on message role
+    if message.role is None:  # User message
+        border_style = "blue"
+        # For user messages, use simpler formatting
+        content = message.display_text()
+        console.print(Panel(
+            renderable=content,
+            title=f"[dim]({timestamp})[/dim]",
+            border_style=border_style,
+            padding=(0, 1),
+        ))
+        console.print("")
+    else:  # Agent message
+        # For agent messages (Neo), display without a panel border
+        # For agent messages, use Markdown for rich formatting
+        # Print Neo's messages without a panel
+        console.print(Markdown(message.display_text()))
 
-        # 4. Initialize prompt_toolkit session
-        try:
-            self._history = FileHistory(history_file)
-            # Setup key bindings
-            kb = KeyBindings()
+class MessageQueue:
 
-            @kb.add("c-d")
-            def _(event):
-                """Handle Ctrl+D for exit."""
-                if not event.cli.current_buffer.text:  # Only exit if buffer is empty
-                    logger.info("Ctrl+D detected on empty line. Exiting.")
-                    # Find the running Chat instance and signal exit?
-                    # This is tricky. Better to rely on EOFError from prompt.
-                    event.app.exit(result=EOFError)
-                else:
-                    # If buffer is not empty, just delete char under cursor or do nothing
-                    pass
+    @dataclass
+    class Item:
+        session_id: str
+        message: str
 
-            self._prompt_session = PromptSession(
-                history=self._history,
-                auto_suggest=AutoSuggestFromHistory(),
-                completer=WordCompleter(list(self._commands.keys()), ignore_case=True),
-                complete_while_typing=True,
-                key_bindings=kb,  # Add key bindings
-            )
-        except Exception as e:
-            logger.error(
-                f"Failed to initialize prompt session with history {history_file}: {e}",
-                exc_info=True,
-            )
-            # Fallback without history or keybindings?
-            self._prompt_session = PromptSession(
-                completer=WordCompleter(list(self._commands.keys()), ignore_case=True),
-                complete_while_typing=True,
-            )
-            print("Warning: Failed to load command history.")
-
-        self._update_prompt()
-        logger.info(
-            f"Chat asynchronous initialization complete for session {self._session_id}."
+    def __init__(self) -> None:
+        self._stop_worker = threading.Event()
+        self._message_queue: queue.Queue[Item] = queue.Queue()
+        self._thread = threading.Thread(
+            target=self._process, daemon=True, name="MessageWorker"
         )
 
-    def _update_prompt(self) -> None:
-        """Updates the prompt text to reflect the current session name."""
-        if not self._prompt_session:
-            logger.warning(
-                "Attempted to update prompt before prompt_session was initialized."
-            )
-            return
+    def start(self) -> None:
+        self._thread.start()
+        logger.info(f"Started message worker thread")
 
-        # Use the session name if available, otherwise use the session ID
-        session_identifier = (
-            self._session_name if self._session_name else self._session_id[:8] + "..."
-        )
-        self._prompt_session.message = f"[{session_identifier}] 🤔 > "
+    def _process(self) -> None:
+        """Worker thread to process and display messages from the queue."""
+        logger.info("Message worker thread started")
 
-    def launch(self) -> None:
-        """Creates the session and starts the interactive chat loop."""
-        # Perform initialization (which now includes session creation)
-        self._initialize()
-
-        # Check if initialization failed (e.g., session creation)
-        if self._is_exiting or not self._session_id or not self._prompt_session:
-            logger.error("Initialization failed or aborted. Cannot launch chat.")
-            return
-
-        # Register signal handlers for graceful shutdown
-        signal.signal(signal.SIGINT, self._handle_interrupt)
-        signal.signal(signal.SIGTERM, self._handle_interrupt)
-
-        # Display welcome message
-        self._print_welcome_message()
-        
-        # Set running flag
-        self._running = True
-
-        # Main chat loop
-        while self._running:
-            user_input = None
+        while not self._stop_worker.is_set():
+            # Get a message from the queue with a timeout
+            # This allows the thread to check the stop flag periodically
             try:
-                # Get user input directly
-                user_input = self._get_user_input()
+                message = self._message_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
 
-                # Reset interrupt counter on successful input
-                self.interrupt_counter = 0
-
-                if (
-                    user_input is None
-                ):  # Can happen if prompt is cancelled (e.g., Ctrl+D)
-                    if not self._running:  # Check if exit was signalled
-                        break
-                    else:
-                        continue  # Prompt cancelled, but not exiting, try again
-
-                # Check if this is a special command
-                if user_input.startswith("/"):
-                    # Handle commands and check if we should continue
-                    should_continue = self._handle_command(user_input)
-                    if not should_continue:
-                        self._running = False  # Signal loop to stop
-                        break
-                    continue
-
-                # Skip empty inputs
-                if not user_input.strip():
-                    continue
-
-                # Send message to the service
-                logger.info(f"Sending user input to session {self._session_id}")
-                for message in Service.message(msg=user_input, session_id=self._session_id):
-                    # Print each message from the service
-                    self._console.print(message)
-
-            except KeyboardInterrupt:
-                # Handle Ctrl+C during input
-                current_time = time.time()
-                if current_time - self.last_interrupt_time < 1:
-                    self.interrupt_counter += 1
-                else:
-                    self.interrupt_counter = 1
-                self.last_interrupt_time = current_time
-
-                if self.interrupt_counter >= 2:
-                    self._console.print(
-                        "[bold red]Exiting due to repeated Ctrl+C[/bold red]"
-                    )
-                    self._running = False
-                    break
-                else:
-                    self._console.print(
-                        "[yellow]Press Ctrl+C again quickly or Ctrl+D to exit.[/yellow]"
-                    )
-
-            except EOFError:  # Ctrl+D during input
-                self._console.print("[yellow]Exiting due to Ctrl+D.[/yellow]")
-                self._running = False
-                break
-
-            except Exception as e:
-                logger.error(f"Error in chat loop: {e}", exc_info=True)
-                self._console.print(f"[red]An unexpected error occurred: {e}[/red]")
-                # Decide if the error is fatal
-                # self._running = False
-                # break
-
-        # Cleanup: Stop the message stream task
-        self._stop_message_stream()
-        logger.info("Interactive chat session ended.")
-
-    def _setup_signal_handlers(self) -> None:
-        """
-        Set up handlers for system signals to ensure graceful termination.
-        """
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(
-                sig, lambda s=sig: asyncio.create_task(self._signal_handler(s))
+            self._message_queue.task_done()
+            # Process the message and display results
+            logger.info(
+                f"Worker processing message: {message.message[:30]}..."
+                if len(message.message) > 30
+                else message.message
             )
 
-    def _handle_interrupt(self, sig, frame) -> None:
-        """
-        Handle system signals for immediate termination.
-        """
-        self._running = False
-        # Attempt to cancel the background task gracefully
-        self._stop_message_stream()
-        # Exit the program
-        sys.exit(0)
+            with console.status("[bold green]Processing..."):
+                # Process through the service
+                for message in Service.message(
+                    msg=message.message, session_id=message.session_id
+                ):
+                    print_message(message)
+                    if self._stop_worker.is_set():
+                        break
 
-    def _print_welcome_message(self) -> None:
-        """Display welcome message with optional workspace information."""
-        self._console.print("[bold green]Welcome to Neo Interactive Chat![/bold green]")
-        self._console.print(
-            f"Session: [cyan]{self._session_name}[/cyan] (ID: {self._session_id[:8]}...)"
-        )
-        if self._workspace:
-            self._console.print(f"Workspace: [blue]{self._workspace}[/blue]")
-        else:
-            self._console.print(f"Workspace: [yellow]Not set[/yellow]")
-        self._console.print(
-            "Type [blue]/help[/blue] for commands, [blue]/exit[/blue] or [blue]Ctrl+D[/blue] to quit."
-        )
-        self._console.print("---")
+        logger.info("Message worker thread stopped")
 
-    def _get_user_input(self) -> Optional[str]:  # Made sync again, will run in thread
-        """
-        Get input from the user with prompt toolkit.
-        """
+    def add_message(self, message: str) -> None:
+        # Add to processing queue
+        print_message(Message(role=None, content=[TextBlock(text=message)]))
+        msg = self.Item(session_id=session_id, message=message)
+        self._message_queue.put(msg)
+
+    def stop(self) -> None:
+        """Stop the message worker thread if running."""
+        if self._thread and self._thread.is_alive():
+            logger.info("Stopping message worker thread...")
+            self._stop_worker.set()
+            self._thread.join(timeout=2.0)
+            if self._thread.is_alive():
+                logger.warning("Message worker thread did not stop gracefully")
+            else:
+                logger.info("Message worker thread stopped successfully")
+
+message_queue = MessageQueue()
+
+def run_processing_loop() -> None:
+    message_queue.start()
+    while True:
         try:
-            # Use a simple leading indicator for the prompt
-            prompt_text = f"[{self._session_name[:10]}] 🤔 > "
-            return self._prompt_session.prompt(prompt_text)
-        except EOFError:
-            # Raised on Ctrl+D, signal exit intent
-            self._running = False
-            return None  # Signal cancellation
+            # Use patch_stdout to ensure proper prompt handling (only in the UI thread)
+            with patch_stdout(raw=True):
+                user_input = prompt_session.prompt()
+            print("\033[A                             \033[A")
+
+            # Reset interrupt counter on successful input
+            global interrupt_counter
+            interrupt_counter = 0
+
+            # Check if this is a special command
+            if user_input.startswith("/"):
+                handle_command(user_input)
+                continue
+
+            # Skip empty inputs
+            if not user_input.strip():
+                continue
+
+            # Add message to queue for processing by worker thread
+            message_queue.add_message(user_input)
+            logger.info(
+                f"Added message to queue: {user_input[:30]}..."
+                if len(user_input) > 30
+                else user_input
+            )
+
         except KeyboardInterrupt:
-            # Raised on Ctrl+C, signal interrupt
-            raise  # Let the main loop handle KeyboardInterrupt
+            handle_keyboard_interrupt()
+        except EOFError:  # Ctrl+D during input
+            raise TerminateChat("[bold red]Exiting due to Ctrl+D[/bold red]")
 
-    def _handle_command(self, command: str) -> bool:
-        """
-        Process special commands entered by the user.
-        """
-        # Extract command and args
-        parts = command.strip().split()
-        cmd = parts[0].lower()
-        args = parts[1:]
 
-        if cmd == "/exit":
-            logger.info("User requested exit")
-            self._console.print("[yellow]Exiting chat session...[/yellow]")
-            return False
-        if cmd == "/help":
-            self._show_help()
-        elif cmd == "/debug":
-            self.debug_mode = not self.debug_mode
-            status = "enabled" if self.debug_mode else "disabled"
-            self._console.print(f"[yellow]Debug mode {status}[/yellow]")
-            logger.info(f"Debug mode {status}")
-        elif cmd == "/new-session":
-            if not self._workspace:
-                self._console.print(
-                    "[red]Cannot create new session: Workspace not set.[/red]"
-                )
-                return True
-            session_name = args[0] if args else None
-            try:
-                new_session = Service.create_session(
-                    session_name=session_name, workspace=self._workspace
-                )
-                self._console.print(
-                    f"[green]Created and switched to new session: [bold]{new_session.session_name}[/bold] (ID: {new_session.session_id[:8]}...)[/green]"
-                )
-                self.switch_session(
-                    new_session.session_id
-                )  # Switch internal state
-            except Exception as e:
-                self._console.print(f"[red]Error creating session: {e}[/red]")
-        elif cmd == "/list-sessions":
+def handle_keyboard_interrupt() -> None:
+    """
+    Handle system signals for immediate termination.
+    """
+    global interrupt_counter, last_interrupt_time
+    current_time = time.time()
+    if current_time - last_interrupt_time < 1:
+        interrupt_counter += 1
+    else:
+        interrupt_counter = 1
+    last_interrupt_time = current_time
+
+    if interrupt_counter >= 2:
+        raise TerminateChat("[bold red]Exiting due to repeated Ctrl+C[/bold red]")
+    else:
+        console.print("[yellow]Press Ctrl+C again quickly or Ctrl+D to exit.[/yellow]")
+
+
+
+def handle_command(command: str) -> None:
+    # Strip the leading slash and split into command and args
+    parts = command[1:].split(maxsplit=1)
+    cmd = parts[0].lower() if parts else ""
+    args = parts[1] if len(parts) > 1 else ""
+
+    if cmd == "exit":
+        raise TerminateChat("[bold red]Exiting chat...[/bold red]")
+    elif cmd == "help":
+        console.print("[bold]Available Commands:[/bold]")
+        for cmd, desc in COMMANDS.items():
+            console.print(f"  [blue]{cmd}[/blue] - {desc}")
+    elif cmd == "info":
+        console.print(
+            f"[bold]Session:[/bold] {session_name} ([italic]{session_id}[/italic])"
+        )
+        console.print(f"[bold]Workspace:[/bold] {workspace}")
+
+    elif cmd == "list":
+        # List all persistent sessions
+        try:
             sessions = Service.list_sessions()
-            if sessions:
-                self._console.print(
-                    "[bold green]Available Sessions (ID: Name):[/bold green]"
-                )
-                for session_id, name in sessions.items():
-                    self._console.print(f"  [cyan]{session_id[:8]}...[/cyan]: {name}")
+            if not sessions:
+                console.print("[yellow]No persistent sessions found.[/yellow]")
             else:
-                self._console.print("[yellow]No persistent sessions found.[/yellow]")
-        elif cmd == "/switch-session":
-            if not args:
-                self._console.print("[red]Missing session ID or name[/red]")
-                return True
-            target = args[0]
-            # Try finding by ID first, then by name
-            session_id_to_switch = None
-            all_sessions = Service.list_sessions()
-            if target in all_sessions:
-                session_id_to_switch = target
-            else:
-                # Try finding by name (case-sensitive for now)
-                found = False
-                for sid, sname in all_sessions.items():
-                    if sname == target:
-                        session_id_to_switch = sid
-                        found = True
-                        break
-                if not found:
-                    # Last resort: maybe it's a partial ID?
-                    for sid in all_sessions.keys():
-                        if sid.startswith(target):
-                            session_id_to_switch = sid
-                            break  # Take the first partial match
+                console.print("[bold]Available Sessions:[/bold]")
+                for idx, session in enumerate(sessions, 1):
+                    is_current = session.session_id == session_id
+                    current_marker = "[green]*[/green] " if is_current else "  "
+                    console.print(
+                        f"{current_marker}{idx}. [cyan]{session.session_name}[/cyan] "
+                        f"([italic]{session.session_id[:8]}...[/italic]) "
+                        f"- Workspace: {session.workspace or 'None'}"
+                    )
+        except Exception as e:
+            console.print(f"[red]Error listing sessions: {e}[/red]")
 
-            if session_id_to_switch:
-                if session_id_to_switch == self._session_id:
-                    self._console.print("[yellow]Already in this session.[/yellow]")
-                else:
-                    self.switch_session(session_id_to_switch)
-            else:
-                self._console.print(f"[red]Session '{target}' not found.[/red]")
-        elif cmd == "/info":
-            self._console.print(f"Current Session: [cyan]{self._session_name}[/cyan]")
-            self._console.print(f"Session ID: [cyan]{self._session_id}[/cyan]")
-            self._console.print(
-                f"Workspace: [blue]{self._workspace or '[Not Set]'}[/blue]"
-            )
+    elif cmd == "switch":
+        if not args:
+            console.print("[yellow]Usage: /switch <session_id>[/yellow]")
+            console.print("Use [blue]/list[/blue] to see available sessions.")
         else:
-            self._console.print(f"[red]Unknown command: {cmd}[/red]")
-            self._console.print("Type [blue]/help[/blue] for available commands.")
+            logger.info(f"Attempting to switch to session {new_session_name}")
+            if new_session_name == session_name:
+                console.print("[yellow]Already in this session.[/yellow]")
+                return
 
-        return True
+            try:
+                new_session_info = Service.get_session(new_session_name)
+                if not new_session_info:
+                    console.print(f"[red]Session '{new_session_name}' not found[/red]")
+                    return
+            except Exception as e:
+                console.print(
+                    f"[red]Failed to load session '{new_session_name[:8]}...': {e}[/red]"
+                )
+                return
 
-    def _show_help(self) -> None:
-        """Display available commands and their descriptions."""
-        self._console.print("\n[bold blue]Available Commands:[/bold blue]")
+            _update_session(new_session_info)
 
-        for cmd, desc in self._commands.items():
-            self._console.print(f"  [blue]{cmd}[/blue]: {desc}")
-
-        self._console.print(
-            "\nOtherwise, just type your message to chat with the assistant."
-        )
-        self._console.print("\n[bold blue]Keyboard Shortcuts:[/bold blue]")
-        self._console.print("  [blue]Ctrl+C[/blue] twice quickly: Exit the application")
-        self._console.print("  [blue]Ctrl+D[/blue]: Exit the application")
-
-    def switch_session(self, new_session_id: str) -> None:
-        """
-        Switch to an existing session.
-
-        Args:
-            new_session_id: ID of the session to switch to
-        """
-        # Basic check if ID is the same
-        if new_session_id == self._session_id:
-            self._console.print("[yellow]Already in this session.[/yellow]")
-            return
-
-        # Attempt to load the new session info to confirm it exists and get its details
-        try:
-            new_session_info = Service.get_session(new_session_id)
-            if not new_session_info:
-                raise FileNotFoundError("Session not found")
-            new_session_name = new_session_info.session_name
-            new_workspace = new_session_info.workspace
-        except Exception as e:
-            self._console.print(
-                f"[red]Failed to load session '{new_session_id[:8]}...': {e}[/red]"
+            console.print(
+                f"[green]Switched to session: [bold]{session_name}[/bold] (ID: {session_id[:8]}...)[/green]"
             )
-            return
+            console.print("---")
+    elif cmd == "new-session":
+        if not args:
+            console.print("[yellow]Usage: /new-session <session_name>[/yellow]")
+        else:
+            try:
+                new_session_name = args.strip() if args.strip() else None
+                new_session = Service.create_session(new_session_name, workspace)
+                console.print(
+                    f"[green]Created new session: [bold]{new_session.session_name}[/bold] (ID: {new_session.session_id})[/green]"
+                )
+                _update_session(new_session)
+            except Exception as e:
+                console.print(f"[red]Failed to create session: {e}[/red]")
+    else:
+        console.print(f"[red]Unknown command: {cmd}[/red]")
+        console.print("Use [blue]/help[/blue] to see available commands.")
 
-        logger.info(f"Switching from session {self._session_id} to {new_session_id}")
 
-        # Stop the current message stream
-        self._stop_message_stream()
+class TerminateChat(Exception):
+    """Exception to signal the chat loop should terminate."""
 
-        # Update internal state
-        self._session_id = new_session_id
-        self._session_name = new_session_name
-        self._workspace = new_workspace  # Update workspace too
+    def __init__(self, message: str) -> None:
+        self.message = message
 
-        # Start the message stream for the new session
-        self._start_message_stream()
 
-        self._console.print(
-            f"[green]Switched to session: [bold]{self._session_name}[/bold] (ID: {self._session_id[:8]}...)[/green]"
-        )
-        # Optionally clear the screen or add a separator
-        self._console.print("---")
+def launch() -> None:
+    """Creates the session and starts the interactive chat loop."""
 
-    # --- Async Task Management for Streaming ---
+    is_new_session = False
+    session_info = Service.get_last_active_session()
+    workspace = os.getcwd()
 
-    def _start_message_stream(self) -> None:
-        """Placeholder for starting message stream - not needed in synchronous implementation."""
-        logger.info(f"Message streaming is handled synchronously for session {self._session_id}")
+    if not session_info:
+        session_info = Service.create_session(workspace=workspace)
+        is_new_session = True
 
-    def _stop_message_stream(self) -> None:
-        """Placeholder for stopping message stream - not needed in synchronous implementation."""
-        logger.info(f"No background message stream to stop for session {self._session_id}")
+    _update_session(session_info)
+    
+    # Display welcome message with optional workspace information
+    console.print(f"Session: [cyan]{session_name}[/cyan] (ID: {session_id})")
+    
+    if workspace:
+        console.print(f"Workspace: [blue]{workspace}[/blue]")
+    else:
+        console.print(f"Workspace: [yellow]Not set[/yellow]")
+        
+    console.print(
+        "Type [blue]/help[/blue] for commands, [blue]/exit[/blue] or [blue]Ctrl+D[/blue] to quit."
+    )
 
-    async def _stream_and_display_messages(self):
-        """The core task that streams messages and displays them."""
-        try:
-            logger.debug(f"Message stream loop started for {self._session_id}.")
-            async for message in Service.stream_messages(self._session_id):
-                self._display_response(message)
-        except asyncio.CancelledError:
-            # Expected on shutdown or session switch
-            logger.info(f"Message stream for {self._session_id} cancelled.")
-            raise  # Re-raise to allow _stop_message_stream to catch it
-        except ValueError as ve:
-            logger.error(f"Value error in stream (e.g., session not found?): {ve}")
-            self._console.print(
-                f"[bold red]Error streaming messages: {ve}. Session might be invalid.[/bold red]"
-            )
-            self._running = False  # Stop the main loop if session is bad
-        except Exception as e:
-            logger.error(
-                f"Unexpected error in message stream for {self._session_id}: {e}",
-                exc_info=True,
-            )
-            self._console.print(
-                f"[bold red]An error occurred while streaming messages: {e}[/bold red]"
-            )
-            # Depending on the error, you might want to stop the main loop
-            # self._running = False
-        finally:
-            logger.debug(f"Message stream loop finished for {self._session_id}.")
+    # Main chat loop (UI thread)
+    try:
+        run_processing_loop()
+    except TerminateChat as e:
+        console.print(e.message)
+    except Exception as e:
+        logger.exception("Unexpected error in chat loop")
+        console.print(f"[red]An unexpected error occurred: {e}[/red]")
+
+    logger.info("Interactive chat session ended.")

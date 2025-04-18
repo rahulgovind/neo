@@ -12,7 +12,8 @@ import os
 import weakref
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, TextIO, Union
+from typing import Any, Dict, TextIO
+from src import NEO_HOME
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -129,8 +130,7 @@ class StructuredLogger:
         if "timestamp" not in data:
             data["timestamp"] = datetime.datetime.now().isoformat()
 
-        # Create path in ~/.neo/<session_id>/<logger_name>.json
-        log_dir = Path(os.path.expanduser("~")) / ".neo" / f"{session_id}"
+        log_dir = Path(NEO_HOME) / f"{session_id}"
         log_file_path = log_dir / f"{logger_name}.json"
 
         # Load or create log file

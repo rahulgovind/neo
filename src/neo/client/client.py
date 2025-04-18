@@ -4,8 +4,9 @@ Handles client instantiation and request/response logging.
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Union
 
+from openai._utils import transform
 from openai.types import Completion
 
 from src.neo.client.base import BaseClient
@@ -57,6 +58,7 @@ class Client:
         messages: List[Message],
         commands: List[str] = None,
         model: Optional[str] = None,
+        output_schema: Union[str, Dict[str, Any]] = None,
         session_id: Optional[str] = None,
     ) -> Message:
         messages_to_send = messages.copy()
@@ -78,15 +80,33 @@ class Client:
                 return response
 
             command_calls = response.get_command_calls()
-            validation_results = [self._shell.validate(command) for command in command_calls]
+            validation_results = self._shell.validate_command_calls(command_calls, output_schema)
             validation_failures = [result for result in validation_results if not result.success]
             
             if len(validation_failures) == 0:
-                return response
+                transformed_blocks = []
+                for block in response.content:
+                    if isinstance(block, CommandCall):
+                        transformed_blocks.append(self._shell.parse_command_call(block, output_schema))
+                    else:
+                        transformed_blocks.append(block)
+                return Message(
+                    role="assistant",
+                    content=transformed_blocks,
+                    metadata=response.metadata,
+                )
+
+            num_valid_commands = len(command_calls) - len(validation_failures)
+            correction_message = "Commands are not valid. Correct them."
+            if num_valid_commands > 0:
+                correction_message += f"\n{num_valid_commands} were valid but have not been executed. Send them again too."
 
             messages_to_send = messages.copy() + [
                 response,
-                Message(role="user", content=validation_failures)
+                Message(
+                    role="user", 
+                    content=[*validation_failures, TextBlock(correction_message)]
+                )
             ]
 
     def _process(

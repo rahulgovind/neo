@@ -29,7 +29,7 @@ class DatabaseConnection:
         os.makedirs(neo_dir, exist_ok=True)
         
         database_path = os.path.join(neo_dir, "neo.db")
-        self._connection = sqlite3.connect(database_path)
+        self._connection = sqlite3.connect(database_path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
         
         # Enable foreign keys constraint enforcement

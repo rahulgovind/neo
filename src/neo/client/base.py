@@ -169,7 +169,7 @@ class BaseClient:
             return self._parse_response(response, request_data)
 
         except Exception as e:
-            logger.error(f"Error processing messages: {e}", exc_info=True)
+            logger.exception(f"Error processing messages: {e}")
             raise
 
     def count_tokens(self, request_data: Dict[str, Any]) -> Optional[int]:
@@ -201,7 +201,7 @@ class BaseClient:
 
             return num_tokens
         except Exception as e:
-            logger.error(f"Error counting tokens: {str(e)}")
+            logger.exception(f"Error counting tokens: {str(e)}")
             return None
 
     def _send_request(
@@ -372,7 +372,7 @@ class BaseClient:
         try:
             content = response.choices[0].message.content
         except (AttributeError, IndexError, TypeError) as e:
-            logger.error(f"Invalid response structure: {e}")
+            logger.exception(f"Invalid response structure: {response}")
             message = Message(role="assistant")
             message.add_content(
                 TextBlock("I'm sorry, I encountered an error processing your request.")
@@ -380,7 +380,7 @@ class BaseClient:
             return message
 
         if content is None:
-            logger.error("Response message content is None")
+            logger.exception("Response message content is None")
             message = Message(role="assistant")
             message.add_content(
                 TextBlock("I'm sorry, I encountered an error processing your request.")

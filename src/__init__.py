@@ -17,135 +17,85 @@ logger = logging.getLogger(__name__)
 # Load environment variables from .env file if present
 load_dotenv()
 
+if "pytest" not in sys.modules:
+    NEO_HOME = os.environ.get("NEO_HOME", os.path.expanduser("~/.neo"))
+else:
+    NEO_HOME = "/tmp/.neo"
 
 def setup_logging() -> None:
     """
     Configure centralized logging for the entire application.
     
     This function sets up:
-    - File logging for all messages in ~/.neo/stdout.log
-    - File logging for warnings and above in ~/.neo/stderr.log
-    - File logging for errors in ~/.neo/errors.log
+    - File logging for all messages in {NEO_HOME}/logs/stdout.log
+    - File logging for warnings and above in {NEO_HOME}/logs/stderr.log
     - Console logging only if LOG_TO_CONSOLE=1 is set (disabled by default)
     - Conservative logging levels for noisy third-party libraries
     """
-    try:
-        # Get log level from environment or use INFO as default
-        log_level_name = os.environ.get("LOG_LEVEL", "INFO")
-        log_level = getattr(logging, log_level_name)
-        
-        # Create ~/.neo directory if it doesn't exist
-        log_dir = os.path.expanduser("~/.neo")
-        os.makedirs(log_dir, exist_ok=True)
-        
-        # Define log file paths
-        stdout_log_file = os.path.join(log_dir, "stdout.log")
-        stderr_log_file = os.path.join(log_dir, "stderr.log")
-        error_log_file = os.environ.get("LOG_FILE", os.path.join(log_dir, "errors.log"))
-        
-        # Create a formatter for all handlers
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        
-        # Configure root logger and remove any existing handlers
-        root_logger = logging.getLogger()
-        # Remove all existing handlers to prevent duplication
-        for handler in root_logger.handlers[:]:
-            root_logger.removeHandler(handler)
-        
-        root_logger.setLevel(log_level)
-        
-        # Create stdout log file handler
-        stdout_handler = logging.handlers.RotatingFileHandler(
-            stdout_log_file,
-            maxBytes=10485760,  # 10MB
-            backupCount=3,  # Keep 3 backup files
-        )
-        stdout_handler.setFormatter(formatter)
-        stdout_handler.setLevel(log_level)
-        
-        # Create stderr log file handler for warnings and above
-        stderr_handler = logging.handlers.RotatingFileHandler(
-            stderr_log_file,
-            maxBytes=10485760,  # 10MB
-            backupCount=3,  # Keep 3 backup files
-        )
-        stderr_handler.setFormatter(formatter)
-        stderr_handler.setLevel(logging.WARNING)
-        
-        # Create file handler for errors only
-        error_handler = logging.handlers.RotatingFileHandler(
-            error_log_file,
-            maxBytes=10485760,  # 10MB
-            backupCount=3,  # Keep 3 backup files
-        )
-        error_handler.setLevel(logging.ERROR)
-        error_handler.setFormatter(formatter)
-        
-        # Add handlers to root logger
-        root_logger.addHandler(stdout_handler)
-        root_logger.addHandler(stderr_handler)
-        root_logger.addHandler(error_handler)
-        
-        # Only add console handler if LOG_TO_CONSOLE is set to 1
-        if os.environ.get("LOG_TO_CONSOLE", "0") == "1":
-            console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setFormatter(formatter)
-            console_handler.setLevel(log_level)
-            root_logger.addHandler(console_handler)
-            logger.debug("Console logging enabled")
-        
-        # Set conservative default levels for noisy libraries
-        logging.getLogger("openai").setLevel(logging.WARNING)
-        logging.getLogger("httpx").setLevel(logging.WARNING)
-        
-        # Log the configuration was successful
-        logger.debug("Logging configured successfully")
-        logger.debug(f"Standard output logs will be saved to {stdout_log_file}")
-        logger.debug(f"Standard error logs will be saved to {stderr_log_file}")
-        logger.debug(f"Error logs will be saved to {error_log_file}")
-        logger.debug(f"Console logging is {'enabled' if os.environ.get('LOG_TO_CONSOLE', '0') == '1' else 'disabled'}")
-        
-    except Exception as e:
-        # Fallback to basic logging in case of error
-        if os.environ.get("LOG_TO_CONSOLE", "0") == "1":
-            print(f"Warning: Could not set up error logging: {e}")
-            logging.basicConfig(
-                level=logging.INFO,
-                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-        else:
-            # Set up minimal file-only logging if possible
-            try:
-                log_dir = os.path.expanduser("~/.neo")
-                os.makedirs(log_dir, exist_ok=True)
-                error_log_file = os.path.join(log_dir, "errors.log")
-                logging.basicConfig(
-                    level=logging.INFO,
-                    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                    datefmt="%Y-%m-%d %H:%M:%S",
-                    filename=error_log_file,
-                    filemode="a",
-                )
-            except:
-                # Last resort fallback with no output
-                logging.basicConfig(
-                    level=logging.INFO,
-                    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                    datefmt="%Y-%m-%d %H:%M:%S",
-                    handlers=[logging.NullHandler()],
-                )
+    # Get log level from environment or use INFO as default
+    log_level_name = os.environ.get("LOG_LEVEL", "INFO")
+    log_level = getattr(logging, log_level_name)
+    
+    # Create log directory if it doesn't exist
+    log_dir = os.path.join(NEO_HOME, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Define log file paths
+    stdout_log_file = os.path.join(log_dir, "stdout.log")
+    stderr_log_file = os.path.join(log_dir, "stderr.log")
+    
+    # Create a formatter for all handlers
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    
+    # Configure root logger and remove any existing handlers
+    root_logger = logging.getLogger()
+    # Remove all existing handlers to prevent duplication
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    root_logger.setLevel(log_level)
+    
+    # Create stdout log file handler
+    stdout_handler = logging.handlers.RotatingFileHandler(
+        stdout_log_file,
+        maxBytes=10485760,  # 10MB
+        backupCount=3,  # Keep 3 backup files
+    )
+    stdout_handler.setFormatter(formatter)
+    stdout_handler.setLevel(log_level)
+    
+    # Create stderr log file handler for warnings and above
+    stderr_handler = logging.handlers.RotatingFileHandler(
+        stderr_log_file,
+        maxBytes=10485760,  # 10MB
+        backupCount=3,  # Keep 3 backup files
+    )
+    stderr_handler.setFormatter(formatter)
+    stderr_handler.setLevel(logging.WARNING)
+    
+    # Add handlers to root logger
+    root_logger.addHandler(stdout_handler)
+    root_logger.addHandler(stderr_handler)
+    
+    # Only add console handler if LOG_TO_CONSOLE is set to 1
+    if os.environ.get("LOG_TO_CONSOLE", "0") == "1":
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+        console_handler.setLevel(log_level)
+        root_logger.addHandler(console_handler)
+        logger.debug("Console logging enabled")
+    
+    # Set conservative default levels for noisy libraries
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    
+    # Log the configuration was successful
+    logger.debug("Logging configured successfully")
+    logger.debug(f"Standard output logs will be saved to {stdout_log_file}")
+    logger.debug(f"Standard error logs will be saved to {stderr_log_file}")
+    logger.debug(f"Console logging is {'enabled' if os.environ.get('LOG_TO_CONSOLE', '0') == '1' else 'disabled'}")
 
-# Initialize logging when the module is imported
 setup_logging()
-
-# Import version from VERSION file for use within the package
-try:
-    with open(os.path.join(os.path.dirname(__file__), "..", "VERSION"), "r") as f:
-        __version__ = f.read().strip()
-except FileNotFoundError:
-    # This can happen if package is not installed in development mode
-    __version__ = "unknown"

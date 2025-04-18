@@ -29,6 +29,7 @@ from src.agent import Agent
 from src.core.shell import Shell
 from src.core.messages import Message, TextBlock
 from src.database import Database
+from src import NEO_HOME
 
 # Configure logging
 logging.basicConfig(
@@ -318,11 +319,7 @@ def _get_log_files(session_id: str) -> List[Dict[str, Any]]:
     Returns:
         List of log file information dictionaries
     """
-    import os
-
-    # Match path construction logic in StructuredLogger._initialize
-    # Logs are stored in ~/.neo, not in the workspace
-    log_dir = Path(os.path.expanduser("~")) / ".neo" / f"session-{session_id}"
+    log_dir = Path(NEO_HOME) / f"session-{session_id}"
     if not log_dir.exists():
         return []
 

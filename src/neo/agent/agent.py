@@ -9,7 +9,7 @@ import logging
 from typing import List, Optional, Callable, Iterator
 from datetime import datetime
 
-from src.neo.core.messages import Message, TextBlock
+from src.neo.core.messages import ContentBlock, Message, TextBlock
 from src.neo.session import Session
 
 # Configure logging
@@ -85,7 +85,6 @@ class Agent:
         # Ensure session directory exists
         try:
             session_dir = self.session.internal_session_dir
-            # Create the ~/.neo directory structure if it doesn't exist
             if not os.path.exists(session_dir):
                 os.makedirs(session_dir, exist_ok=True)
                 logger.info(f"Created session directory: {session_dir}")
@@ -157,12 +156,12 @@ class Agent:
         except Exception as e:
             logger.error(f"Error writing to chat log: {e}")
 
-    def process(self, user_message: str) -> Iterator[str]:
+    def process(self, user_message: str) -> Iterator[Message]:
         """
         Process a user message and generate a response.
 
         Returns:
-            Iterator of text responses from the assistant and command results
+            Iterator of messages from the assistant and command results
         """
         logger.info("Processing user message")
 
@@ -183,16 +182,16 @@ class Agent:
             final_response = self.state.messages[-1]
             if final_response.role != "assistant":
                 logger.warning("Last message in state is not from assistant")
-                yield "I had an issue processing your request. Please try again."
+                yield Message(role="assistant", content=[TextBlock("I had an issue processing your request. Please try again.")])
                 return
 
             logger.info("User message processed successfully")
             # Note: We don't yield the final response here as it's already yielded in _process()
 
         except Exception as e:
-            logger.error(f"Error processing user message: {e}")
-            # Provide a user-friendly error message
-            yield "I encountered an error processing your request. Please try again or rephrase your message."
+            logger.exception(f"Error processing user message: {e}")
+            # Provide a user-friendly error mes sage
+            yield Message(role="assistant", content=[TextBlock("I encountered an error processing your request. Please try again or rephrase your message.")])
 
     def _do_state_change(self, func: Callable[AgentState, None]) -> None:
         """
@@ -245,14 +244,14 @@ class Agent:
             lambda state: state.update(messages=state.messages[-100:])
         )
 
-    def _process(self) -> Iterator[str]:
+    def _process(self) -> Iterator[Message]:
         """
         Process messages and manually handle any command calls.
 
         Executes commands as needed and updates memory after each model processing step.
 
         Returns:
-            Iterator of text responses from the assistant and command results
+            Iterator of messages from the assistant and command results
         """
         # Get the client from the context
         client = self.session.client
@@ -277,16 +276,17 @@ class Agent:
                     messages_to_send
                 ),
                 commands=self._command_names,
+                session_id=self.session.session_id,
             )
 
             # Add the response to state
             self._do_state_change(lambda state: state.messages.append(current_response))
 
             # Log assistant message
-            self._log_to_chat(f"NEO: {current_response.text()}")
+            self._log_to_chat(f"NEO: {current_response.display_text()}")
 
-            # Yield the assistant's response using display_text
-            yield current_response.display_text()
+            # Yield the assistant's response
+            yield current_response
 
             self._prune_state()
 
@@ -301,10 +301,10 @@ class Agent:
 
             # Log command results
             for result in command_results:
-                self._log_to_chat(f"SYSTEM: {result.text}")
-                # Yield each command result using display_text
-                yield result.display_text()
+                self._log_to_chat(f"SYSTEM: {result.model_text()}")
+                # Yield each command result
 
             # Create a single user message with all results
             result_message = Message(role="user", content=command_results)
+            yield result_message
             self._do_state_change(lambda state: state.messages.append(result_message))

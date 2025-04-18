@@ -20,7 +20,7 @@ class Service:
     """
 
     @classmethod
-    def message(cls, msg: str, session_id: Optional[str] = None) -> Iterable[str]:
+    def message(cls, msg: str, session_id: Optional[str] = None) -> Iterable[Message]:
         """Sends a user message to the specified session's agent.
         
         If session_id is None, creates a temporary session.
@@ -30,7 +30,7 @@ class Service:
             session_id: Session ID to use, or None to create a temporary session
             
         Returns:
-            Generator yielding response message strings
+            Generator yielding response messages
         """
         session = None
         

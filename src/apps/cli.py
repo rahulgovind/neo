@@ -20,7 +20,8 @@ from src.neo.agent.agent import Agent
 from src.neo.shell.shell import Shell
 from src.neo.service.service import Service
 
-from src.apps.chat import Chat
+# Import launch function directly from chat module
+from src.apps.chat import launch
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
@@ -54,16 +55,14 @@ class CLI:
 
             # Execute the appropriate subcommand
             if args.subcommand == "chat":
+                workspace = args.workspace or os.getcwd()
                 logger.info(
-                    f"Starting interactive chat for workspace: {args.workspace}"
+                    f"Starting interactive chat for workspace: {workspace}"
                 )
-                # Session creation is now handled within Chat class
-                chat_instance = Chat(
-                    workspace=args.workspace
-                )  # Instantiate with workspace
-                # Use try-except in case of async errors
+                # Use the launch function directly from the chat module
                 try:
-                    chat_instance.launch()
+                    # Session creation is handled within launch function
+                    launch()
                 except Exception as e:
                     logger.error(f"Error in chat launch: {e}", exc_info=True)
                     print(f"\nEncountered an error: {e}")
