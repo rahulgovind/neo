@@ -218,17 +218,15 @@ class ReadFileCommand(Command):
             # Read the file content - now returns a FileContent object or raises an exception
             file_content = read(
                 full_path,
-                include_line_numbers=include_line_numbers,
                 from_=from_line,
                 until=until_line,
                 limit=limit,
             )
 
+
             # Format the output based on whether line numbers are requested
-            if include_line_numbers:
-                formatted_content = file_content.format_with_line_numbers()
-            else:
-                formatted_content = file_content.format_without_line_numbers()
+            formatted_content = file_content.format(include_line_numbers=include_line_numbers)
+
 
             # Create a summary of the operation
             file_path = os.path.basename(full_path)

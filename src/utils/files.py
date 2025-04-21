@@ -23,8 +23,16 @@ class FileContent:
     line_count: int  # Total number of lines in the file
     displayed_range: Tuple[int, int]  # The range of lines displayed (0-indexed)
     
-    def format_with_line_numbers(self) -> str:
-        """Format the content with line numbers."""
+    def format(self, include_line_numbers: bool = True) -> str:
+        """
+        Format the content with or without line numbers.
+        
+        Args:
+            include_line_numbers: Whether to include line numbers in the output
+            
+        Returns:
+            Formatted string representation of the file content
+        """
         result_lines = []
         
         # Add indicator for lines before the selection if truncated at start
@@ -33,9 +41,14 @@ class FileContent:
             lines_before = start_line
             result_lines.append(f"... {lines_before} additional lines")
         
-        # Add lines with line numbers
-        for i, line in enumerate(self.lines, start=start_line + 1):  # Convert to 1-indexed
-            result_lines.append(f"{i}:{line}")
+        # Add lines either with or without line numbers
+        if include_line_numbers:
+            # Add lines with line numbers
+            for i, line in enumerate(self.lines, start=start_line + 1):  # Convert to 1-indexed
+                result_lines.append(f"{i}:{line}")
+        else:
+            # Add lines without line numbers
+            result_lines.extend(self.lines)
         
         # Add indicator for lines after the selection if truncated at end
         end_line = self.displayed_range[1]
@@ -45,30 +58,19 @@ class FileContent:
             
         return "\n".join(result_lines)
     
+    # Add backward compatible methods
+    def format_with_line_numbers(self) -> str:
+        """Format the content with line numbers (deprecated, use format(True))."""
+        return self.format(include_line_numbers=True)
+    
     def format_without_line_numbers(self) -> str:
-        """Format the content without line numbers."""
-        result_lines = []
-        
-        # Add indicator for lines before the selection if truncated at start
-        start_line = self.displayed_range[0]
-        if start_line > 0:
-            lines_before = start_line
-            result_lines.append(f"... {lines_before} additional lines")
-        
-        # Add lines without line numbers
-        result_lines.extend(self.lines)
-        
-        # Add indicator for lines after the selection if truncated at end
-        end_line = self.displayed_range[1]
-        if end_line < self.line_count:
-            lines_after = self.line_count - end_line
-            result_lines.append(f"... {lines_after} additional lines")
-            
-        return "\n".join(result_lines)
+        """Format the content without line numbers (deprecated, use format(False))."""
+        return self.format(include_line_numbers=False)
     
     def __str__(self) -> str:
         """String representation with line numbers by default."""
-        return self.format_with_line_numbers()
+        return self.format(include_line_numbers=True)
+
 
 
 from src.utils.linters import lint_code, get_supported_file_types
@@ -78,26 +80,22 @@ from src.utils.linters import lint_code, get_supported_file_types
 logger = logging.getLogger(__name__)
 
 
-def read(  # pylint: disable=unused-argument
+def read(
     path: str,
-    include_line_numbers: bool = False,  # Kept for backward compatibility, handled by FileContent format methods
     from_: Optional[int] = None,
     until: Optional[int] = None,
     limit: int = -1,
 ) -> FileContent:
-
-
-
     """
     Reads content from a single file at the specified path.
     Special command characters are automatically escaped with Unicode escapes.
 
     Args:
         path: Path to the file to read
-        include_line_numbers: Whether to prefix each line with its line number
         from_: Optional start line number (1-indexed, or negative to count from end)
         until: Optional end line number (1-indexed, or negative to count from end)
         limit: Maximum number of lines to return (default: 200). Use -1 for unlimited.
+
 
     Returns:
         FileContent object containing the file contents and metadata
