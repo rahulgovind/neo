@@ -239,38 +239,45 @@ error_test_cases = [
 def test_read_file_command(test_case):
     """Test successful read file commands using the defined test cases."""
     temp_dir = tempfile.mkdtemp()
-    ctx = (
-        Session.builder().session_id("test_session_id").workspace(temp_dir).initialize()
-    )
+    try:
+        # Initialize session with a unique ID based on test name
+        ctx = (
+            Session.builder().session_id(f"test_{test_case.name}").workspace(temp_dir).initialize()
+        )
 
-    # Determine the file path based on the test case name
-    file_path = os.path.join(temp_dir, f"{test_case.name}.txt")
+        # Determine the file path based on the test case name
+        file_path = os.path.join(temp_dir, f"{test_case.name}.txt")
 
-    # Create the test file with appropriate content if provided
-    if test_case.file_content is not None:
-        # Create any required subdirectories for this test
-        if "subdir" in test_case.name:
-            subdir_path = os.path.join(temp_dir, "subdir")
-            os.makedirs(subdir_path, exist_ok=True)
-            file_path = os.path.join(subdir_path, f"{test_case.name}.txt")
+        # Create the test file with appropriate content if provided
+        if test_case.file_content is not None:
+            # Create any required subdirectories for this test
+            if "subdir" in test_case.name:
+                subdir_path = os.path.join(temp_dir, "subdir")
+                os.makedirs(subdir_path, exist_ok=True)
+                file_path = os.path.join(subdir_path, f"{test_case.name}.txt")
 
-        # Write the content to the file
-        with open(file_path, "w") as f:
-            f.write(test_case.file_content)
+            # Write the content to the file
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(test_case.file_content)
 
-    # Format the command parameters with the actual file path
-    formatted_params = test_case.command_parameters.format(file_path=file_path)
+        # Format the command parameters with the actual file path
+        formatted_params = test_case.command_parameters.format(file_path=file_path)
 
-    # Create and execute the command
-    command_input = f"read_file {formatted_params}"
+        # Create and execute the command
+        command_input = f"read_file {formatted_params}"
 
-    # Execute the command
-    result = ctx.shell.parse_and_execute(command_input)
+        # Execute the command
+        result = ctx.shell.parse_and_execute(command_input)
 
-    # Verify the command executed successfully
-    assert (
-        result.success
-    ), f"Command should execute successfully for test case {test_case.name}. Error: {result.content}"
+        # Verify the command executed successfully
+        assert (
+            result.success
+        ), f"Command should execute successfully for test case {test_case.name}. Error: {result.content}"
+    finally:
+        # Clean up
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
 
     # Check for expected output strings
     for expected_str in test_case.expected_output:
@@ -305,37 +312,44 @@ def test_read_file_command(test_case):
 def test_read_file_errors(test_case):
     """Test error conditions in read file commands using the defined error test cases."""
     temp_dir = tempfile.mkdtemp()
-    ctx = (
-        Session.builder().session_id("test_session_id").workspace(temp_dir).initialize()
-    )
+    try:
+        # Initialize session with a unique ID based on test name
+        ctx = (
+            Session.builder().session_id(f"test_err_{test_case.name}").workspace(temp_dir).initialize()
+        )
 
-    # Determine the file path
-    file_path = os.path.join(temp_dir, f"{test_case.name}.txt")
+        # Determine the file path
+        file_path = os.path.join(temp_dir, f"{test_case.name}.txt")
 
-    # Create the test file with appropriate content if provided
-    if test_case.file_content is not None:
-        with open(file_path, "w") as f:
-            f.write(test_case.file_content)
+        # Create the test file with appropriate content if provided
+        if test_case.file_content is not None:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(test_case.file_content)
 
-    # Format the command parameters with the actual file path
-    formatted_params = test_case.command_parameters.format(file_path=file_path)
+        # Format the command parameters with the actual file path
+        formatted_params = test_case.command_parameters.format(file_path=file_path)
 
-    # Create and execute the command
-    command_input = f"read_file {formatted_params}"
+        # Create and execute the command
+        command_input = f"read_file {formatted_params}"
 
-    # Execute the command for other error cases
-    result = ctx.shell.parse_and_execute(command_input)
+        # Execute the command for error cases
+        result = ctx.shell.parse_and_execute(command_input)
 
-    # Verify the command failed as expected
-    assert (
-        not result.success
-    ), f"Command should fail for error test case {test_case.name}"
-
-    # Verify the error message contains the expected text
-    if result.content is None:
-        # For exceptions that are raised and don't set result.result
-        print(f"Warning: result.result is None for test case {test_case.name}")
-    else:
+        # Verify the command failed as expected
         assert (
-            test_case.expected_error.lower() in result.content.lower()
-        ), f"Error '{test_case.expected_error}' not found in result for test case {test_case.name}: {result.content}"
+            not result.success
+        ), f"Command should fail for error test case {test_case.name}"
+
+        # Verify the error message contains the expected text
+        if result.content is None:
+            # For exceptions that are raised and don't set result.content
+            pytest.fail(f"Result content is None for test case {test_case.name}")
+        else:
+            assert (
+                test_case.expected_error.lower() in result.content.lower()
+            ), f"Error '{test_case.expected_error}' not found in result for test case {test_case.name}: {result.content}"
+    finally:
+        # Clean up
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
