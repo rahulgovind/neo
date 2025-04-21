@@ -10,15 +10,13 @@ import os
 import sys
 import argparse
 import logging
-import asyncio
-from typing import Dict, Any, Optional, List
-import traceback
+from dotenv import load_dotenv
+
+
 
 # Logging is configured in src/__init__.py when imported
-from src.neo.session import Session
-from src.neo.agent.agent import Agent
-from src.neo.shell.shell import Shell
 from src.neo.service.service import Service
+
 
 # Import launch function directly from chat module
 from src.apps.chat import launch
@@ -44,34 +42,47 @@ class CLI:
         Start the CLI application.
 
         This method:
-        1. Parses command-line arguments
-        2. Delegates to the appropriate Service class methods based on the subcommand
+        1. Loads environment variables from .env file
+        2. Parses command-line arguments
+        3. Delegates to the appropriate Service class methods based on the subcommand
 
         It's the main entry point for the application.
         """
         try:
+            # Load environment variables from .env file
+            dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env')
+            load_dotenv(dotenv_path)
+            logger.info("Loaded environment from: %s", dotenv_path)
+
+            
             # Parse command-line arguments
             args = cls._parse_args()
+
 
             # Execute the appropriate subcommand
             if args.subcommand == "chat":
                 workspace = args.workspace or os.getcwd()
                 logger.info(
-                    f"Starting interactive chat for workspace: {workspace}"
+                    "Starting interactive chat for workspace: %s", workspace
                 )
+
                 # Use the launch function directly from the chat module
                 try:
                     # Session creation is handled within launch function
                     launch()
-                except Exception as e:
-                    logger.error(f"Error in chat launch: {e}", exc_info=True)
+                except Exception as e:  # pylint: disable=broad-except
+                    logger.error("Error in chat launch: %s", str(e), exc_info=True)
                     print(f"\nEncountered an error: {e}")
+
+
 
             elif args.subcommand == "create-session":
                 # Create a new session using Service's async method
                 logger.info(
-                    f"Using workspace: {args.workspace} to create session '{args.session}'"
+                    "Using workspace: %s to create session '%s'", 
+                    args.workspace, args.session
                 )
+
                 session = Service.create_session(
                     session_name=args.session, workspace=args.workspace
                 )
@@ -85,7 +96,8 @@ class CLI:
                 session_id = None
                 
                 if args.session:
-                    logger.info(f"Processing message for session '{args.session}'")
+                    logger.info("Processing message for session '%s'", args.session)
+
                     # If session is specified then try to find it by listing sessions and matching the name
                     all_sessions = Service.list_sessions()
                     
@@ -96,7 +108,8 @@ class CLI:
                     
                     if not session_id:
                         print(f"Error: Session '{args.session}' not found.")
-                        logger.error(f"Session '{args.session}' not found for message command.")
+                        logger.error("Session '%s' not found for message command.", args.session)
+
                         sys.exit(1)
 
                 # Use the Service.message method with the session_id
@@ -120,11 +133,12 @@ class CLI:
             print(f"\nError: {nie}")
             sys.exit(1)
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             # Log any unhandled exceptions
-            logger.critical(f"Unhandled exception: {e}", exc_info=True)
+            logger.critical("Unhandled exception: %s", str(e), exc_info=True)
             print(f"\nError: {str(e)}")
             sys.exit(1)
+
 
     @staticmethod
     def _parse_args() -> argparse.Namespace:
