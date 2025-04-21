@@ -35,7 +35,6 @@ from src import NEO_HOME
 from src.neo.service.service import Service
 from src.neo.core.messages import Message, TextBlock
 from src.neo.service.session_manager import SessionInfo
-from rich.table import Table
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -129,7 +128,7 @@ class MessageQueue:
     def __init__(self) -> None:
         self._stop_worker = threading.Event()
         self._stopping_status = threading.Event()  # Flag to indicate stopping status
-        self._message_queue: queue.Queue[Item] = queue.Queue()
+        self._message_queue: queue.Queue[MessageQueue.Item] = queue.Queue()
         self._thread = threading.Thread(
             target=self._process, daemon=True, name="MessageWorker"
         )
@@ -226,6 +225,18 @@ class MessageQueue:
             logger.warning("Processing did not complete within %.1f seconds", timeout_seconds)
         else:
             logger.info("Processing interrupted successfully")
+    def join(self) -> None:
+        """
+        Block until all items in the message queue have been processed.
+        This method waits until the message queue is empty and all tasks are done.
+        """
+        logger.info("Waiting for message queue to be processed...")
+        try:
+            if self._thread and self._thread.is_alive():
+                self._message_queue.join()
+            logger.info("Message queue processing completed.")
+        except Exception:
+            logger.exception("Error while waiting for message queue to complete")
 
 message_queue = MessageQueue()
 
@@ -233,10 +244,34 @@ def run_processing_loop() -> None:
     message_queue.start()
     while True:
         try:
-            # Use patch_stdout to ensure proper prompt handling (only in the UI thread)
+            # Create a custom prompt application that will clean up after itself
+            user_input = ""  # Initialize with empty string instead of None to handle slicing operations
+            
             with patch_stdout(raw=True):
-                user_input = prompt_session.prompt()
-            print("\033[A                             \033[A")
+                # Create a prompt application that will erase prompt when done
+                def accept_input(buff):
+                    nonlocal user_input
+                    user_input = buff.text
+                    app.exit()
+                
+                # Configure session to use our custom accept handler
+                session = PromptSession(
+                    message=HTML("\n<ansigreen>></ansigreen> "),
+                    history=prompt_session.history,
+                    auto_suggest=AutoSuggestFromHistory(),
+                )
+                
+                # Create application with erase_when_done=True
+                app = session.app
+                app.erase_when_done = True
+                
+                # Set accept handler
+                session.default_buffer.accept_handler = accept_input
+                
+                # Run the application
+                app.run()
+                
+                # Now we have the user input and the prompt has been erased
 
             # Reset interrupt counter on successful input
             global interrupt_counter
@@ -258,6 +293,9 @@ def run_processing_loop() -> None:
                 if len(user_input) > 30
                 else user_input
             )
+            
+            # Block until the message is processed
+            message_queue.join()
 
         except KeyboardInterrupt:
             handle_keyboard_interrupt()
@@ -331,6 +369,7 @@ def handle_command(command: str) -> None:
             console.print("[yellow]Usage: /switch <session_id>[/yellow]")
             console.print("Use [blue]/list[/blue] to see available sessions.")
         else:
+            new_session_name = args.strip()
             logger.info(f"Attempting to switch to session {new_session_name}")
             if new_session_name == session_name:
                 console.print("[yellow]Already in this session.[/yellow]")
