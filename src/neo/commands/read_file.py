@@ -214,8 +214,8 @@ class ReadFileCommand(Command):
             except ValueError:
                 return CommandResult(success=False, content=f"Invalid value for --limit. Found {limit}. Expected a number.")
 
-        # Read the file content
-        content = read(
+        # Read the file content - now returns a FileContent object
+        file_content = read(
             full_path,
             include_line_numbers=include_line_numbers,
             from_=from_line,
@@ -223,13 +223,21 @@ class ReadFileCommand(Command):
             limit=limit,
         )
 
-        # Check if content contains a file not found error message
-        if content.startswith("File not found:"):
-            return CommandResult(success=False, content=content)
+        # Check if operation was not successful
+        if not file_content.success:
+            return CommandResult(success=False, content=file_content.error_message)
+
+        # Format the output based on whether line numbers are requested
+        if include_line_numbers:
+            formatted_content = file_content.format_with_line_numbers()
+        else:
+            formatted_content = file_content.format_without_line_numbers()
 
         # Create a summary of the operation
         file_path = os.path.basename(full_path)
         summary = f"Read file: {file_path}"
+        
+        # Add line range info to summary if applicable
         if from_line is not None or until_line is not None:
             line_range = ""
             if from_line is not None:
@@ -237,5 +245,10 @@ class ReadFileCommand(Command):
             if until_line is not None:
                 line_range += f"to line {until_line}"
             summary += f" ({line_range.strip()})"
+            
+        # Add displayed range info
+        start_line, end_line = file_content.displayed_range
+        summary += f" (showing lines {start_line+1}-{end_line} of {file_content.line_count})"
 
-        return CommandResult(content=content, success=True, summary=summary)
+        return CommandResult(content=formatted_content, success=True, summary=summary)
+

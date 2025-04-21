@@ -13,9 +13,77 @@ import sys
 import logging
 import textwrap
 from contextlib import contextmanager
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Union
 from dataclasses import dataclass
 from enum import Enum
+
+
+@dataclass
+class FileContent:
+    """Structured representation of file content with metadata."""
+    content: str  # The raw content without line numbers
+    lines: List[str]  # List of individual lines
+    line_count: int  # Total number of lines in the file
+    displayed_range: Tuple[int, int]  # The range of lines displayed (0-indexed)
+    success: bool  # Whether the read operation was successful
+    error_message: Optional[str] = None  # Error message if success is False
+    is_truncated_start: bool = False  # Whether content is truncated at the start
+    is_truncated_end: bool = False  # Whether content is truncated at the end
+    lines_before: int = 0  # Number of lines omitted before the selection
+    lines_after: int = 0  # Number of lines omitted after the selection
+    
+    def format_with_line_numbers(self) -> str:
+        """Format the content with line numbers."""
+        result_lines = []
+        
+        # Add indicator for lines before the selection
+        if self.is_truncated_start:
+            result_lines.append(f"... {self.lines_before} additional lines")
+        
+        # Add lines with line numbers
+        start_line = self.displayed_range[0]
+        for i, line in enumerate(self.lines, start=start_line + 1):  # Convert to 1-indexed
+            result_lines.append(f"{i}:{line}")
+        
+        # Add indicator for lines after the selection
+        if self.is_truncated_end:
+            result_lines.append(f"... {self.lines_after} additional lines")
+            
+        return "\n".join(result_lines)
+    
+    def format_without_line_numbers(self) -> str:
+        """Format the content without line numbers."""
+        result_lines = []
+        
+        # Add indicator for lines before the selection
+        if self.is_truncated_start:
+            result_lines.append(f"... {self.lines_before} additional lines")
+        
+        # Add lines without line numbers
+        result_lines.extend(self.lines)
+        
+        # Add indicator for lines after the selection
+        if self.is_truncated_end:
+            result_lines.append(f"... {self.lines_after} additional lines")
+            
+        return "\n".join(result_lines)
+    
+    def __str__(self) -> str:
+        """String representation with line numbers by default."""
+        return self.format_with_line_numbers()
+    
+    @classmethod
+    def error(cls, message: str) -> 'FileContent':
+        """Create an error FileContent object."""
+        return cls(
+            content="",
+            lines=[],
+            line_count=0,
+            displayed_range=(0, 0),
+            success=False,
+            error_message=message
+        )
+
 from src.neo.core.constants import (
     COMMAND_START,
     COMMAND_END,
@@ -36,7 +104,7 @@ def read(
     from_: Optional[int] = None,
     until: Optional[int] = None,
     limit: int = -1,
-) -> str:
+) -> FileContent:
     """
     Reads content from a single file at the specified path.
     Special command characters are automatically escaped with Unicode escapes.
@@ -49,18 +117,18 @@ def read(
         limit: Maximum number of lines to return (default: 200). Use -1 for unlimited.
 
     Returns:
-        File contents, optionally with line numbers, or error message
+        FileContent object containing the file contents and metadata
     """
     logger.info(f"Reading file '{path}'")
 
     try:
         if not os.path.exists(path):
             logger.warning(f"File not found: {path}")
-            return f"File not found: {path}"
+            return FileContent.error(f"File not found: {path}")
 
         if not os.path.isfile(path):
             logger.warning(f"Path is not a file: {path}")
-            return f"Path is not a file: {path}"
+            return FileContent.error(f"Path is not a file: {path}")
 
         with open(path, "r", encoding="utf-8") as f:
             # Read the file content directly to preserve the exact format including final newline
@@ -104,10 +172,9 @@ def read(
                     start_line = max(0, end_line - 100)
 
             except ValueError as e:
-                logger.error(
-                    f"Invalid line numbers: from={from_}, until={until} - {str(e)}"
-                )
-                return f"Error: Invalid line numbers: from={from_}, until={until} - {str(e)}"
+                error_msg = f"Invalid line numbers: from={from_}, until={until} - {str(e)}"
+                logger.error(error_msg)
+                return FileContent.error(f"Error: {error_msg}")
 
             # Validate range boundaries
             start_line = max(0, min(start_line, total_lines - 1))
@@ -119,60 +186,44 @@ def read(
 
             # Get the selected lines
             selected_lines = lines[start_line:end_line]
+            
+            # Determine truncation status and counts
+            is_truncated_start = start_line > 0
+            is_truncated_end = end_line < total_lines
+            lines_before = start_line
+            lines_after = total_lines - end_line
 
-            # Prepare result with truncation indicators
-            result_lines = []
-
-            # Add indicator for lines before the selection
-            if start_line > 0:
-                # For 1-indexed display, we need to account for the different indexing
-                # If we're starting at index 19 (0-indexed), that means lines 1-20 are omitted
-                # So the number to display is the 1-indexed line number of the first displayed line, minus 1
-                first_display_line = (
-                    start_line + 1
-                )  # Convert to 1-indexed for user display
-                omitted_lines = first_display_line - 1
-                result_lines.append(f"... {omitted_lines} additional lines")
-
-            # Format the result
-            if include_line_numbers:
-                # Add line numbers - for unlimited display, we need to start counting from 1
-                # otherwise, adjust line numbers based on the starting line
-                if read_entire_file:
-                    numbered_lines = [
-                        f"{i+1}:{line}" for i, line in enumerate(selected_lines)
-                    ]
-                else:
-                    numbered_lines = [
-                        f"{i+1}:{line}"
-                        for i, line in enumerate(selected_lines, start=start_line)
-                    ]
-                result_lines.extend(numbered_lines)
-            else:
-                result_lines.extend(selected_lines)
-
-            # Add indicator for lines after the selection
-            if end_line < total_lines:
-                # Calculate exactly how many lines are omitted after the current selection
-                omitted_after = total_lines - end_line
-                result_lines.append(f"... {omitted_after} additional lines")
-
-            result = "\n".join(result_lines)
+            # Create the FileContent object
+            file_content = FileContent(
+                content=content,
+                lines=selected_lines,
+                line_count=total_lines,
+                displayed_range=(start_line, end_line),
+                success=True,
+                is_truncated_start=is_truncated_start,
+                is_truncated_end=is_truncated_end,
+                lines_before=lines_before,
+                lines_after=lines_after
+            )
 
             logger.info(
                 f"Successfully read file: {path} (showing {len(selected_lines)} of {total_lines} lines)"
             )
-            return result
+            return file_content
 
     except UnicodeDecodeError:
-        logger.error(f"File is not text or has unknown encoding: {path}")
-        return f"Error: File is not text or has unknown encoding: {path}"
+        error_msg = f"File is not text or has unknown encoding: {path}"
+        logger.error(error_msg)
+        return FileContent.error(f"Error: {error_msg}")
     except PermissionError:
-        logger.error(f"Permission denied reading file: {path}")
-        return f"Error: Permission denied reading file: {path}"
+        error_msg = f"Permission denied reading file: {path}"
+        logger.error(error_msg)
+        return FileContent.error(f"Error: {error_msg}")
     except Exception as e:
-        logger.error(f"Error reading file {path}: {str(e)}")
-        return f"Error reading file {path}: {str(e)}"
+        error_msg = f"Error reading file {path}: {str(e)}"
+        logger.error(error_msg)
+        return FileContent.error(f"Error: {error_msg}")
+
 
 
 def overwrite(
