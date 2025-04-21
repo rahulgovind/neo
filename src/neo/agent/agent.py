@@ -158,10 +158,6 @@ class Agent:
                     [f"{msg.role}: {msg.model_text()}" for msg in state.messages]
                 )
             )
-
-            for msg in output.to_messages():
-                logger.info(f"ASSISTANT: {msg.model_text()}")
-                yield msg
             state = asm.checkpoint_state(state)
             state = asm.prune_state(state)
 
@@ -169,6 +165,10 @@ class Agent:
                 state.dump(self.state_file)
 
             self.state = state
+
+            for msg in output.to_messages():
+                logger.info(f"ASSISTANT: {msg.model_text()}")
+                yield msg
 
             if output.is_terminal():
                 break

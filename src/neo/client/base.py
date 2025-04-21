@@ -40,7 +40,7 @@ class BaseClient:
         """
         self.api_url = os.environ.get("API_URL")
         self.api_key = os.environ.get("API_KEY")
-        self.default_model = os.environ.get("MODEL_ID", "anthropic/claude-3.7-sonnet")
+        self.default_model = os.environ.get("MODEL_ID", "anthropic/claude-3.7-sonnet:thinking")
 
         if not self.api_key:
             logger.error("API_KEY environment variable is not set")
@@ -141,7 +141,7 @@ class BaseClient:
 
             # Process and return the response
             logger.debug(f"Received response:\n{response}")
-            return self._parse_response(response, request_data)
+            return self._parse_response(messages, response, request_data)
 
         except Exception as e:
             logger.exception(f"Error processing messages: {e}")
@@ -335,7 +335,7 @@ class BaseClient:
         return metadata
 
     def _parse_response(
-        self, response, request_data: Dict[str, Any]
+        self, messages: List[Message], response, request_data: Dict[str, Any]
     ) -> Message:
         """
         Parse LLM response to extract text and command calls.
@@ -354,6 +354,11 @@ class BaseClient:
         # Validate response and extract content
         try:
             content = response.choices[0].message.content
+            if messages[-1].role == "assistant":
+                content = messages[-1].model_text() + content
+            if COMMAND_END in content:
+                content = content[:content.find(COMMAND_END) + 1]
+            
         except (AttributeError, IndexError, TypeError) as e:
             logger.exception(f"Invalid response structure: {response}")
             message = Message(role="assistant")

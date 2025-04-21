@@ -1,14 +1,10 @@
-import os
 import logging
-import asyncio
-from typing import Iterable, Optional, Dict
-
-from attr import dataclass
+from typing import Iterable, Optional, List
 
 # Import from the new module structure
 from src.neo.core.messages import Message
 from src.neo.service.session_manager import SessionManager, SessionInfo
-from src.neo.session import Session
+
 
 logger = logging.getLogger(__name__)
 
@@ -113,10 +109,15 @@ class Service:
         return SessionInfo(session_id=session.session_id, session_name=session.session_name)
 
     @classmethod
-    def list_sessions(cls) -> Dict[str, str]:
-        """Lists all available persistent sessions."""
+    def list_sessions(cls) -> list[SessionInfo]:
+        """Lists all available persistent sessions.
+        
+        Returns:
+            A list of SessionInfo objects representing all persistent sessions.
+        """
         logger.info("Service listing sessions.")
         return SessionManager.list_sessions()
+
         
     @classmethod
     def get_last_active_session(cls) -> Optional[SessionInfo]:

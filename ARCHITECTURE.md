@@ -41,9 +41,75 @@ Neo follows a layered architecture with clear separation of concerns:
 
 ### Key Components
 
+#### Client (src/neo/client/)
+
+The Client component provides a robust abstraction over LLM services:
+
+**Client** (`src/neo/client/client.py`):
+
+- Orchestrates the communication flow with the LLM
+- Preprocesses messages to ensure proper formatting
+- Postprocesses responses to extract command calls and text blocks
+- Performs command validation before execution
+- Handles error recovery with feedback loops for invalid commands
+- Transforms responses into structured Message objects with content blocks
+
+**BaseClient** (`src/neo/client/base.py`):
+
+- Core LLM API client implementation
+- Handles API authentication and request management
+- Implements comprehensive request/response logging with structured data
+- Manages token counting and usage tracking
+- Handles API-specific adaptations for different providers
+- Implements error handling and retry logic
+
+Key features:
+- Uses OpenAI's Chat Completions API format for broad compatibility
+- Supports structured metadata in requests and responses
+- Implements automatic validation and retries for failed command calls
+- Provides detailed logging of request/response pairs
+- Manages conversation caching with ephemeral message control
+- Supports structured output with validation
+
+**BaseClient** (`src/neo/client/base.py`):
+
+- Provides low-level communication with the LLM API
+- Abstracts OpenAI-compatible API interactions
+- Handles authentication and API configuration
+- Implements comprehensive logging of requests and responses
+- Calculates token usage and manages rate limits
+- Includes error handling and retry logic
+
+#### Client (src/neo/client/)
+
+The Client component provides a robust abstraction over LLM API interactions:
+
+**Client** (`src/neo/client/client.py`):
+- Handles processing of messages to and from LLMs
+- Validates command calls before execution
+- Manages message preprocessing and response postprocessing
+- Automatically corrects and retries invalid command calls
+- Uses a structured logging system for tracking requests and responses
+
+**BaseClient** (`src/neo/client/base.py`):
+- Provides low-level communication with LLM APIs
+- Implements OpenAI API format compatibility
+- Performs token counting and usage tracking
+- Includes detailed request/response logging
+- Handles error conditions gracefully
+- Supports configurable model selection
+
+**Key Features**:
+- **Unified API Format**: Works with both OpenAI and compatible API providers
+- **Robust Error Handling**: Graceful recovery from API errors and malformed responses
+- **Detailed Logging**: Comprehensive structured logging of all requests and responses
+- **Token Usage Tracking**: Monitors token consumption for both prompts and completions
+- **Command Validation**: Pre-validates command calls before execution to prevent errors
+
 #### Model (src/core/model.py)
 
-The Model component provides an abstraction over the LLM client API:
+The Model component builds on the Client to provide higher-level LLM interaction:
+
 
 - Manages communication with the LLM using the OpenAI API format
 - Handles message preprocessing and response postprocessing
@@ -144,19 +210,83 @@ The command framework also provides:
 - **Robust Error Handling**: Commands provide detailed error feedback to users and system components
 - **Workspace Awareness**: Commands respect workspace boundaries for security
 
-#### Agent (src/agent/agent.py)
+#### Agent (src/neo/agent/)
 
-The Agent component orchestrates the interaction between the user, Model, and Functions:
+The Agent component orchestrates the interaction between the user, Model, and Functions through a modular architecture:
 
-- Delegates user requests to appropriate components
-- Manages execution flow between user input and LLM responses
-- Handles command execution and result formatting
-- Provides context management for conversations
-- Implements safety measures and execution boundaries
+**Agent** (`src/neo/agent/agent.py`):
+
+- Core orchestration class that manages the conversation lifecycle
+- Loads and provides system instructions and custom rules (from .neorules)
+- Processes user messages and returns assistant responses
+- Integrates with the session to persist conversation state
+- Handles command execution through the Agent State Machine
+- Supports both ephemeral (non-persistent) and persistent conversation modes
+
+**AgentState** (`src/neo/agent/state.py`):
+
+- Manages the conversation state with immutable data structures
+- Stores system instructions and the message history
+- Provides methods for adding messages and manipulating state
+- Implements serialization logic for saving/loading conversation state
+- Supports message pruning to manage context length
+- Includes utilities for turn-based conversation management
+
+**AgentStateMachine** (`src/neo/agent/asm.py`):
+
+- Implements a stateless state machine for processing agent interactions
+- Provides the primary stepping logic for advancing conversations
+- Manages command execution flow and result handling
+- Creates intelligent checkpoints to summarize conversation history
+- Implements state pruning to handle long conversations
+- Uses configurable thresholds for checkpoint intervals and pruning
+
+**Key Features**:
+
+- **Hierarchical Memory Management**: Implements a sophisticated approach to context retention:
+  - Automatic checkpointing of conversations at configurable intervals
+  - Generation of conversation summaries to preserve context
+  - Smart pruning of older messages while maintaining coherence
+  - Configurable thresholds for managing context window size
+
+- **Stateless Processing**: The state machine provides a clean, functional approach to state transitions
+- **Immutable State**: All state operations return new state objects rather than modifying existing state
+- **Conversation Persistence**: Optional saving and loading of conversations across sessions
+
+#### Service (src/neo/service/)
+
+The Service component provides persistence and session management:
+
+**Service** (`src/neo/service/service.py`):
+- Provides high-level API for session and message processing
+- Supports both persistent and temporary sessions
+- Manages session creation, retrieval, and updates
+- Serves as the entry point for non-interactive applications
+- Handles workspace configuration for sessions
+
+**SessionManager** (`src/neo/service/session_manager.py`):
+- Implements core session management functionality
+- Maps session names to unique session IDs
+- Tracks session state and persistence
+- Manages database interactions through repositories
+- Provides functionality for session listing and retrieval
+
+**Database Layer** (`src/neo/service/database/`):
+- Uses SQLite for persistent storage of session metadata
+- Implements repository pattern for data access
+- Manages session state persistence
+- Tracks last active session information
+
+**Key Features**:
+- **Persistent Sessions**: Allows conversations to continue across application restarts
+- **Session Naming**: Users can create named sessions for better organization
+- **Workspace Association**: Sessions can be associated with specific filesystem workspaces
+- **Last Active Tracking**: Automatically tracks and restores the last active session
 
 #### Chat (src/apps/chat.py)
 
 The Chat component provides the user interface:
+
 
 - Manages the interactive terminal session
 - Processes user inputs and special commands
@@ -197,6 +327,79 @@ Neo integrates code quality checks directly into file operations:
 5. **Version Control Integration**: Direct integration with Git for tracking changes
 
 ### Service Layer (src/neo/service/)
+
+The Service Layer provides persistent session management and a programming interface for Neo:
+
+**Service** (`src/neo/service/service.py`):
+
+- Provides the primary API for programmatic interaction with Neo
+- Exposes methods for session creation, retrieval and messaging
+- Manages messaging workflow for non-interactive components
+- Handles ephemeral and persistent session states
+- Abstracts the session management complexity for API consumers
+
+**SessionManager** (`src/neo/service/session_manager.py`):
+
+- Core implementation for session state management
+- Manages session creation, retrieval, and updates
+- Handles session persistence through the database layer
+- Tracks temporary and permanent sessions
+- Provides access to last active and recently created sessions
+- Implements session workspace configuration
+
+**Database** (`src/neo/service/database/`):
+
+- Implements SQLite-based persistence for sessions
+- Provides repositories for session data access
+- Manages database connections and schema
+- Implements data models for session state
+
+Key features:
+- Separation of API, business logic, and data access layers
+- Support for both temporary and persistent sessions
+- Workspace-aware session management
+- Unique session identification with names and IDs
+- Database-backed session persistence
+- Enables seamless interaction with both temporary and persistent sessions
+- Abstracts away implementation details for application integrations
+
+**SessionManager** (`src/neo/service/session_manager.py`):
+
+- Manages the lifecycle of sessions in the application
+- Provides session creation, retrieval and update operations
+- Handles persistence through the repository pattern
+- Tracks and manages temporary vs. permanent sessions
+- Maintains session state across application restarts
+
+**Database** (`src/neo/service/database/`):
+
+- Implements repository pattern for session persistence
+- Uses SQLite for efficient local data storage
+- Provides data models for session state
+- Manages connection pooling and database operations
+- Enables scalable, persistent session tracking
+
+The Service Layer is designed to support both CLI and potential web/API interfaces, providing a consistent programming model regardless of the interface being used.
+
+**Testing the Service Layer**:
+
+Testing the Service layer requires special considerations due to:
+- Global state in the NEO_HOME variable defined at import time
+- Database connections established when modules are imported
+- Session IDs based on timestamps with potential for conflicts in test suites
+
+We've implemented two testing strategies:
+- Traditional unit tests with setUp/tearDown for normal isolation
+- A standalone isolated script that guarantees complete isolation by setting environment variables before any imports
+
+Key insights for testing this layer:
+- NEO_HOME must be set before importing any Neo-related modules for true isolation
+- Each test should use a unique database file to avoid conflicts
+- The Service.list_sessions() method returns List[SessionInfo], which has been fixed to match its implementation 
+- Comprehensive test coverage uses real (non-mocked) objects for higher fidelity
+
+
+
 
 The Service layer provides a higher-level API for session management and persistent storage:
 

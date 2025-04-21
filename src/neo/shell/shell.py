@@ -164,7 +164,7 @@ class Shell:
                 else:
                     num_standard_command_calls += 1
                 if num_structured_output_calls > 1:
-                    raise ValueError("Only a single structured output call may be provided at a time")
+                    raise ValueError("Only a single structured output call may be provided at a time. Only send the first output call from your previous message.")
                 if num_structured_output_calls > 0 and output_schema is None:
                     raise ValueError(f"{cmd_call.content} - A structured output was not requested")
                 if num_structured_output_calls > 0 and num_standard_command_calls > 0:
