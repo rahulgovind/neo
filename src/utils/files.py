@@ -153,11 +153,11 @@ def read(
             # If only from_ is specified, read from that line to a reasonable number of lines after
             # (unless limit is -1, in which case read to the end)
             if not read_entire_file:
-                end_line = min(start_line + 100, total_lines)
+                end_line = min(start_line + 200, total_lines)
 
         # If only until is specified, show a reasonable number of lines before it
         if until is not None and from_ is None:
-            start_line = max(0, end_line - 100)
+            start_line = max(0, end_line - 200)
 
         # Validate range boundaries
         start_line = max(0, min(start_line, total_lines - 1))
