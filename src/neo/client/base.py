@@ -141,7 +141,11 @@ class BaseClient:
 
             # Process and return the response
             logger.debug(f"Received response:\n{response}")
-            return self._parse_response(messages, response, request_data)
+            try:
+                return self._parse_response(messages, response, request_data)
+            except Exception as e:
+                logger.exception(f"Failed to parse response {response}")
+                raise
 
         except Exception as e:
             logger.exception(f"Error processing messages: {e}")

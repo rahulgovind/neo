@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable, Optional, List
+from typing import Iterable, Optional, List, Dict, Any
 
 # Import from the new module structure
 from src.neo.core.messages import Message
@@ -33,7 +33,7 @@ class Service:
         if session_id:
             session = SessionManager.get_session(session_id)
             if not session:
-                logger.error(f"Service.message: Session with ID '{session_id}' not found.")
+                logger.error("Service.message: Session with ID '%s' not found.", session_id)
                 raise ValueError(f"Session not found: {session_id}")
         else:
             # Create a temporary session
@@ -79,29 +79,29 @@ class Service:
             
             # Create new session name with incremented number
             session_name = f"session-{highest_n + 1}"
-            logger.info(f"Generated session name: {session_name}")
+            logger.info("Generated session name: %s", session_name)
             
-        logger.info(f"Service attempting to create session. Name: {session_name}, Workspace: {workspace}")
+        logger.info("Service attempting to create session. Name: %s, Workspace: %s", session_name, workspace)
         
         try:
             session = SessionManager.create_session(
                 name=session_name, workspace=workspace
             )
-            logger.info(f"Created session: {session.session_id} (Name: {session.session_name})")
+            logger.info("Created session: %s (Name: %s)", session.session_id, session.session_name)
             return SessionInfo(session_id=session.session_id, session_name=session.session_name, workspace=session.workspace)
         except ValueError as e:
-            logger.error(f"Failed to create session: {e}")
+            logger.error("Failed to create session: %s", e)
             raise  # Re-raise the error (e.g., session name conflict)
         except Exception as e:
             logger.error(
-                f"Unexpected error creating session: {e}", exc_info=True
+                "Unexpected error creating session: %s", e, exc_info=True
             )
-            raise RuntimeError(f"Failed to create session: {e}")
+            raise RuntimeError(f"Failed to create session: {e}") from e
 
     @classmethod
     def get_session(cls, session_id: str) -> Optional[SessionInfo]:
         """Retrieves the persisted state of a session by its ID."""
-        logger.debug(f"Service attempting to get session state for ID: {session_id}")
+        logger.debug("Service attempting to get session state for ID: %s", session_id)
         session = SessionManager.get_session(session_id)
         if not session:
             return None
@@ -139,6 +139,38 @@ class Service:
         )
     
     @classmethod
+    def history(cls, session_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Retrieves message history for a given session.
+        
+        Args:
+            session_id: The ID of the session to retrieve messages for
+            limit: Maximum number of messages to retrieve (default: 50)
+            
+        Returns:
+            List of message dictionaries ordered by timestamp (oldest first)
+            
+        Raises:
+            ValueError: If session with the given ID doesn't exist
+        """
+        logger.info("Service retrieving message history for session %s", session_id)
+        
+        # First verify the session exists
+        session = SessionManager.get_session(session_id)
+        if not session:
+            logger.error("Service.history: Session with ID '%s' not found.", session_id)
+            raise ValueError(f"Session not found: {session_id}")
+            
+        # Get the message history from the database
+        from src.database.database import Database
+        db = Database()
+        
+        messages = db.get_session_messages(session_id=session_id, limit=limit)
+        logger.info("Retrieved %d messages for session %s", len(messages), session_id)
+        
+        return messages
+
+
+    @classmethod
     def update_session(cls, session_id: str, workspace: Optional[str] = None) -> Optional[SessionInfo]:
         """Updates an existing session with new attributes.
         
@@ -152,22 +184,22 @@ class Service:
         Raises:
             RuntimeError: If updating the session fails unexpectedly
         """
-        logger.info(f"Service attempting to update session {session_id}. New workspace: {workspace}")
+        logger.info("Service attempting to update session %s. New workspace: %s", session_id, workspace)
         
         try:
             session = SessionManager.update_session(session_id=session_id, workspace=workspace)
             if not session:
-                logger.warning(f"Failed to update session: Session with ID '{session_id}' not found")
+                logger.warning("Failed to update session: Session with ID '%s' not found", session_id)
                 return None
                 
-            logger.info(f"Updated session: {session.session_id} (Name: {session.session_name})")
+            logger.info("Updated session: %s (Name: %s)", session.session_id, session.session_name)
             return SessionInfo(
                 session_id=session.session_id, 
                 session_name=session.session_name, 
                 workspace=session.workspace
             )
         except Exception as e:
-            logger.error(f"Unexpected error updating session: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to update session: {e}")
+            logger.error("Unexpected error updating session: %s", e, exc_info=True)
+            raise RuntimeError(f"Failed to update session: {e}") from e
         
 

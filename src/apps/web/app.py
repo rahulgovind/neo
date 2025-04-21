@@ -23,12 +23,12 @@ from flask import (
     abort,
 )
 
-from src.core.model import Model
-from src.core.session import Session
-from src.agent import Agent
-from src.core.shell import Shell
-from src.core.messages import Message, TextBlock
-from src.database import Database
+from src.neo.session import Session
+from src.neo.agent.agent import Agent
+from src.neo.shell.shell import Shell
+from src.neo.core.messages import Message, TextBlock
+from src.neo.service.service import Service
+from src.database.database import Database  # Kept temporarily for migration to Service
 from src import NEO_HOME
 
 # Configure logging
@@ -72,10 +72,10 @@ class WebChat:
 
         Args:
             workspace: Path to the code workspace
-            db_path: Path to the SQLite database file
+            db_path: Path to the SQLite database file (kept for backwards compatibility)
         """
         self.workspace = workspace
-        self.db = Database(db_path)
+        # Database is no longer directly used, will use Service class instead
         self._model_name = None
         self._agent_cache: Dict[str, Agent] = {}
 
@@ -92,10 +92,16 @@ class WebChat:
         # Note: This method should be called from within a Context block
 
         if session_id not in self._agent_cache:
+            # Create a session first
+            session = Session.builder()\
+                .session_id(session_id)\
+                .workspace(self.workspace)\
+                .initialize()
+            
+            # Create agent with the session
             agent = Agent(
-                instructions=DEFAULT_INSTRUCTIONS,
-                max_command_calls=10,
-                model_name=self._model_name,
+                session=session, 
+                ephemeral=True
             )
             self._agent_cache[session_id] = agent
 
@@ -115,25 +121,33 @@ class WebChat:
         Returns:
             Response from the agent
         """
-        # Import context here to avoid circular imports
-        from src.core.session import Session
-        import os
-
-        with Session(session_id=session_id, workspace=self.workspace) as ctx:
-            # Make sure the session exists
-            self.db.create_session(session_id, self.workspace)
-
+        # Process the message
+        try:
+            # Get session info using Service
+            session_info = Service.get_session(session_id)
+            
+            # If session doesn't exist, create it
+            if not session_info:
+                logger.info("Session %s not found, creating it", session_id)
+                Service.create_session(session_name=session_id, workspace=self.workspace)
+            
             # Get the agent for this session
             agent = self._get_agent(session_id)
-
+            
             # Process the message
             response = agent.process(message)
-
-            # Store in database
-            self.db.add_message(session_id, "user", message)
-            self.db.add_message(session_id, "assistant", response)
-
+            
+            # Store messages in database through fallback mechanism
+            # This is needed until messages are properly managed through Service
+            from src.database.database import Database
+            db = Database()
+            db.add_message(session_id, "user", message)
+            db.add_message(session_id, "assistant", response)
+            
             return response
+        except Exception as e:
+            logger.error("Error in process_message: %s", str(e), exc_info=True)
+            raise
 
     def get_chat_history(self, session_id: str) -> List[Dict[str, Any]]:
         """
@@ -148,50 +162,35 @@ class WebChat:
         try:
             logger.debug(f"Starting get_chat_history for session {session_id}")
 
-            # First check if the session exists in the database
-            logger.debug(f"Checking if session {session_id} exists in database")
-            sessions = self.db.get_sessions(limit=100)
-            session_ids = [s["session_id"] for s in sessions]
-            session_exists = session_id in session_ids
+            # Check if the session exists using the Service
+            logger.debug(f"Checking if session {session_id} exists")
+            session_info = Service.get_session(session_id)
 
-            if not session_exists:
+            if not session_info:
                 logger.warning(
                     f"Attempted to get history for non-existent session: {session_id}"
                 )
                 return []
 
-            logger.debug(
-                f"Session {session_id} exists in database, proceeding to get messages"
-            )
-
-            # Import context here to avoid circular imports
-            from src.core.session import Session
-            import os
+            logger.debug(f"Session {session_id} exists, proceeding to get messages")
 
             try:
-                logger.debug(f"Setting up context for session {session_id}")
-                with Session(session_id=session_id, workspace=self.workspace) as ctx:
-                    logger.debug(
-                        f"Context setup successful for session {session_id}, getting messages"
-                    )
-                    messages = self.db.get_session_messages(session_id)
-                    logger.debug(
-                        f"Retrieved {len(messages)} messages for session {session_id} with context"
-                    )
-                    return messages
+                # Use Service.history to get messages
+                messages = Service.history(session_id=session_id, limit=100)
+                logger.debug(f"Retrieved {len(messages)} messages for session {session_id}")
+                return messages
             except Exception as e:
-                logger.error(
-                    f"Error setting up context for session {session_id}: {str(e)}"
-                )
-                logger.debug("Falling back to direct database access without context")
+                logger.error(f"Error retrieving messages for session {session_id}: {str(e)}")
+                logger.debug("Falling back to direct database access")
                 import traceback
+                logger.debug(f"Error traceback: {traceback.format_exc()}")
 
-                logger.debug(f"Context error traceback: {traceback.format_exc()}")
-
-                # Fallback to direct database access without context
-                messages = self.db.get_session_messages(session_id)
+                # Fallback to direct database access if Service method fails
+                from src.database.database import Database
+                db = Database()
+                messages = db.get_session_messages(session_id)
                 logger.debug(
-                    f"Retrieved {len(messages)} messages for session {session_id} without context (fallback)"
+                    f"Retrieved {len(messages)} messages for session {session_id} using fallback"
                 )
                 return messages
         except Exception as e:
@@ -199,7 +198,6 @@ class WebChat:
                 f"Error retrieving chat history for session {session_id}: {str(e)}"
             )
             import traceback
-
             logger.error(f"History retrieval error traceback: {traceback.format_exc()}")
             return []
 
@@ -210,16 +208,30 @@ class WebChat:
         Returns:
             List of session dictionaries
         """
-        # Import context here to avoid circular imports
-        from src.core.session import Session
-        import os
-        import uuid
-
-        # Use a temporary session ID for this operation
-        with Session(
-            session_id=str(uuid.uuid4()), workspace=os.path.expanduser("~")
-        ) as ctx:
-            return self.db.get_sessions()
+        try:
+            # Use the Service class to list sessions
+            sessions_info = Service.list_sessions()
+            
+            # Convert SessionInfo objects to dictionaries
+            sessions = [
+                {
+                    "session_id": s.session_id,
+                    "session_name": s.session_name,
+                    "workspace": s.workspace,
+                    "created_at": "",  # These fields aren't available in SessionInfo
+                    "updated_at": "",  # but are expected by the web interface
+                    "description": s.session_name  # Use name as description for now
+                }
+                for s in sessions_info
+            ]
+            
+            return sessions
+        except Exception as e:
+            logger.error(f"Error getting sessions: {str(e)}", exc_info=True)
+            # Fallback to direct database access
+            from src.database.database import Database
+            db = Database()
+            return db.get_sessions()
 
 
 # Initialize WebChat with cwd as workspace
@@ -231,7 +243,7 @@ def index():
     """Render the main chat interface with the latest session."""
     if "session_id" not in session:
         # Try to get the latest session
-        latest_session = web_chat.db.get_latest_session()
+        latest_session = Service.get_last_active_session()
 
         if latest_session is not None:
             # Use the latest session
@@ -239,9 +251,10 @@ def index():
             logger.info(f"Using latest session: {latest_session['session_id']}")
         else:
             # Create a new session if no previous sessions exist
-            session["session_id"] = str(uuid.uuid4())
-            web_chat.db.create_session(session["session_id"], web_chat.workspace)
-            logger.info(f"Created new session: {session['session_id']}")
+            new_session_id = str(uuid.uuid4())
+            session["session_id"] = new_session_id
+            Service.create_session(session_name=new_session_id, workspace=web_chat.workspace)
+            logger.info("Created new session: %s", session["session_id"])
 
     return render_template("index.html")
 
@@ -275,16 +288,12 @@ def logs():
     if "session_id" not in session:
         return redirect(url_for("index"))
 
-    # Initialize a context for Neo operations
-    from src.core.session import Session
-    import os
-
     session_id = session["session_id"]
+    
+    # Simply get log files without a context
+    log_files = _get_log_files(session_id)
 
-    with Session(session_id=session_id, workspace=web_chat.workspace) as ctx:
-        log_files = _get_log_files(session_id)
-
-        return render_template("logs.html", log_files=log_files, session_id=session_id)
+    return render_template("logs.html", log_files=log_files, session_id=session_id)
 
 
 @app.route("/logs/<logger_name>")
@@ -293,21 +302,17 @@ def view_log(logger_name):
     if "session_id" not in session:
         return redirect(url_for("index"))
 
-    # Initialize a context for Neo operations
-    from src.core.session import Session
-    import os
-
     session_id = session["session_id"]
+    
+    # Get log entries without a session context
+    log_entries = _get_log_entries(session_id, logger_name)
 
-    with Session(session_id=session_id, workspace=web_chat.workspace) as ctx:
-        log_entries = _get_log_entries(session_id, logger_name)
-
-        return render_template(
-            "log_detail.html",
-            log_entries=log_entries,
-            logger_name=logger_name,
-            session_id=session_id,
-        )
+    return render_template(
+        "log_detail.html",
+        log_entries=log_entries,
+        logger_name=logger_name,
+        session_id=session_id,
+    )
 
 
 def _get_log_files(session_id: str) -> List[Dict[str, Any]]:
@@ -393,8 +398,10 @@ def _get_log_entries(session_id: str, logger_name: str) -> List[Dict[str, Any]]:
 @app.route("/new_session")
 def new_session():
     """Create a new session."""
-    session["session_id"] = str(uuid.uuid4())
-    web_chat.db.create_session(session["session_id"], web_chat.workspace)
+    new_session_id = str(uuid.uuid4())
+    session["session_id"] = new_session_id
+    Service.create_session(session_name=new_session_id, workspace=web_chat.workspace)
+    logger.info("Created new session: %s", new_session_id)
     return redirect(url_for("index"))
 
 
@@ -457,9 +464,9 @@ def get_session_history(session_id):
 
     try:
         # Check if the session exists
-        sessions = web_chat.db.get_sessions(limit=100)
-        session_ids = [s["session_id"] for s in sessions]
-        if session_id not in session_ids:
+        session_info = Service.get_session(session_id)
+        if not session_info:
+            logger.warning("Session %s not found", session_id)
             logger.warning(f"Session {session_id} not found in database sessions list")
             return jsonify([]), 404
 
@@ -505,7 +512,19 @@ def get_latest_session():
     """API endpoint to get the latest session if one exists."""
     try:
         # Try to get the latest session
-        latest_session = web_chat.db.get_latest_session()
+        latest_session_info = Service.get_last_active_session()
+        
+        # Convert SessionInfo to dictionary format expected by frontend
+        latest_session = None
+        if latest_session_info:
+            latest_session = {
+                "session_id": latest_session_info.session_id,
+                "session_name": latest_session_info.session_name,
+                "workspace": latest_session_info.workspace,
+                "created_at": "", 
+                "updated_at": "",
+                "description": latest_session_info.session_name
+            }
 
         if latest_session is not None:
             logger.info(f"Found latest session: {latest_session['session_id']}")
@@ -538,8 +557,8 @@ def chat():
         if "session_id" not in session:
             session_id = str(uuid.uuid4())
             session["session_id"] = session_id
-            web_chat.db.create_session(session_id, web_chat.workspace)
-            logger.info(f"Created new session: {session_id}")
+            Service.create_session(session_name=session_id, workspace=web_chat.workspace)
+            logger.info("Created new session: %s", session_id)
         else:
             session_id = session["session_id"]
             logger.info(f"Using session from cookie: {session_id}")
@@ -552,15 +571,11 @@ def chat():
         return jsonify({"error": "Message cannot be empty"}), 400
 
     try:
-        # Initialize a context for Neo operations
-        from src.core.session import Session
-        import os
-
-        with Session(session_id=session_id, workspace=web_chat.workspace) as ctx:
-            response = web_chat.process_message(session_id, user_message)
-            return jsonify({"response": response, "session_id": session_id})
+        # Process the message without a Session context manager
+        response = web_chat.process_message(session_id, user_message)
+        return jsonify({"response": response, "session_id": session_id})
     except Exception as e:
-        logger.error(f"Error processing message: {e}", exc_info=True)
+        logger.error("Error processing message: %s", str(e), exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -588,12 +603,13 @@ def main():
             sys.exit(1)
         web_chat.workspace = workspace_path
 
-    # Initialize the shell and model
-    from src.core.shell import Shell
-    from src.core.model import Model
+    # The shell and model are now initialized by the Session
+    # These are no longer needed as we access them through
+    # the WebChat class which creates properly configured sessions
 
-    shell = Shell()
-    model = Model()
+    # Commented out legacy code
+    # shell = Shell() 
+    # model = Model()
 
     # Set the model and shell in the environment
     # env.set_model(model)
