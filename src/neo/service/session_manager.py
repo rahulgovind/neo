@@ -192,14 +192,18 @@ class SessionManager:
 
         # Create a temporary session with generated name
         from datetime import datetime
+        import uuid
+        
         now = datetime.now()
-        name = f"temp-{now.strftime('%m%d-%H%M%S')}"
+        unique_id = uuid.uuid4().hex[:8]  # Use first 8 chars for readability
+        name = f"temp-{now.strftime('%m%d-%H%M%S')}-{unique_id}"  # Add unique ID to prevent collisions
 
         # Create a session directly using the SessionBuilder
         session = Session.builder() \
             .session_name(name) \
             .workspace(workspace) \
             .initialize()
+
 
         # Save to database as temporary
         repository.create_session(

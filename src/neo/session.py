@@ -154,9 +154,14 @@ class SessionBuilder:
     def _generate_default_session_id(self) -> str:
         """Generate a default session ID."""
         import datetime
+        import uuid
 
+        # Add a UUID component to ensure uniqueness even when multiple sessions
+        # are created within the same second
         now = datetime.datetime.now(datetime.timezone.utc).astimezone()
-        return f"session-{now.month:02d}{now.day:02d}-{now.hour:02d}{now.minute:02d}{now.second:02d}"
+        unique_id = uuid.uuid4().hex[:8]  # Use first 8 chars for readability
+        return f"session-{now.month:02d}{now.day:02d}-{now.hour:02d}{now.minute:02d}{now.second:02d}-{unique_id}"
+
 
     def initialize(self) -> Session:
         """
