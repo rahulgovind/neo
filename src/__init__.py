@@ -19,8 +19,10 @@ load_dotenv()
 
 if "pytest" not in sys.modules:
     NEO_HOME = os.environ.get("NEO_HOME", os.path.expanduser("~/.neo"))
+    IS_TESTING = False
 else:
     NEO_HOME = "/tmp/.neo"
+    IS_TESTING = True
 
 def setup_logging() -> None:
     """
@@ -81,7 +83,7 @@ def setup_logging() -> None:
     root_logger.addHandler(stderr_handler)
     
     # Only add console handler if LOG_TO_CONSOLE is set to 1
-    if os.environ.get("LOG_TO_CONSOLE", "0") == "1":
+    if IS_TESTING:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(formatter)
         console_handler.setLevel(log_level)

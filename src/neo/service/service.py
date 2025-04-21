@@ -136,5 +136,37 @@ class Service:
             session_name=session.session_name, 
             workspace=session.workspace
         )
+    
+    @classmethod
+    def update_session(cls, session_id: str, workspace: Optional[str] = None) -> Optional[SessionInfo]:
+        """Updates an existing session with new attributes.
+        
+        Args:
+            session_id: The ID of the session to update
+            workspace: New workspace path for the session
+            
+        Returns:
+            Updated SessionInfo object if successful, None if session not found
+            
+        Raises:
+            RuntimeError: If updating the session fails unexpectedly
+        """
+        logger.info(f"Service attempting to update session {session_id}. New workspace: {workspace}")
+        
+        try:
+            session = SessionManager.update_session(session_id=session_id, workspace=workspace)
+            if not session:
+                logger.warning(f"Failed to update session: Session with ID '{session_id}' not found")
+                return None
+                
+            logger.info(f"Updated session: {session.session_id} (Name: {session.session_name})")
+            return SessionInfo(
+                session_id=session.session_id, 
+                session_name=session.session_name, 
+                workspace=session.workspace
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error updating session: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to update session: {e}")
         
 

@@ -96,13 +96,14 @@ class Session:
         if self._agent is None:
             raise FatalError("Agent not available in session")
         return self._agent
-        
+
     @property
     def client(self) -> "Client":
         """Get the client from the session, raising an error if it's not available."""
         if self._client is None:
             raise FatalError("Client not available in session")
         return self._client
+
 
 class SessionBuilder:
     """
@@ -180,15 +181,15 @@ class SessionBuilder:
 
         session._shell = Shell(session=session)
 
+        # Initialize the client
+        from src.neo.client.client import Client
+
+        session._client = Client(shell=session._shell)
+
         # Initialize the agent
         from src.neo.agent import Agent
 
-        session._agent = Agent(session=session)
-        
-        # Initialize the client
-        from src.neo.client.client import Client
-        
-        session._client = Client(shell=session._shell)
+        session._agent = Agent(session=session, ephemeral=False)
 
         logger = logging.getLogger(__name__)
         logger.info(f"Session {session.session_id} initialized.")

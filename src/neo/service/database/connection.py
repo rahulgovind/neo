@@ -9,6 +9,8 @@ import sqlite3
 import logging
 from typing import Optional
 
+from src import NEO_HOME
+
 logger = logging.getLogger(__name__)
 
 class DatabaseConnection:
@@ -25,7 +27,7 @@ class DatabaseConnection:
     
     def _initialize_connection(self) -> None:
         """Initialize the database connection and create tables if they don't exist."""
-        neo_dir = os.path.expanduser("~/.neo")
+        neo_dir = os.path.expanduser(NEO_HOME)
         os.makedirs(neo_dir, exist_ok=True)
         
         database_path = os.path.join(neo_dir, "neo.db")

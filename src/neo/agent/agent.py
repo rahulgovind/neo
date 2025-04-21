@@ -2,13 +2,15 @@
 With added support for hierarchical memory management for enhanced context retention.
 """
 
-from dataclasses import dataclass
-import json
-import os
 import logging
-from typing import List, Optional, Callable, Iterator
-from datetime import datetime
+import os
+from textwrap import dedent
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
+from numpy import isin
+
+from src.neo.agent.asm import AgentStateMachine
+from src.neo.agent.state import MAX_TURNS, SUMMARY_RATIO, AgentState
 from src.neo.core.messages import ContentBlock, Message, TextBlock
 from src.neo.session import Session
 
@@ -16,53 +18,52 @@ from src.neo.session import Session
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class AgentState:
-    messages: List[Message]
-
-    def to_dict(self):
-        """Convert AgentState to a dictionary for serialization."""
-        return {"messages": [message.to_dict() for message in self.messages]}
-
-    @classmethod
-    def from_dict(cls, data):
-        """Create AgentState from a dictionary."""
-        return cls(messages=[Message.from_dict(msg) for msg in data["messages"]])
-
-    def update(self, messages: List[Message]) -> "AgentState":
-        """Update the AgentState with new values."""
-        self.messages = messages
-        return self
-
-
 class Agent:
     """
     Agent orchestrates conversations with an LLM and handles command invocations.
     """
 
-    # Default system instructions for the agent
-    DEFAULT_INSTRUCTIONS_TEMPLATE = """
-    You are Neo, an AI assistant that can help with a wide range of tasks.
+    COMMAND_INSTRUCTIONS = dedent(
+        """
+    When executing commands, follow this exact format:
     
-    You can assist users by:
-    1. Understanding their requirements and questions
-    2. Providing relevant information and explanations
-    3. Engaging in thoughtful conversation
+    - The command starts with "\u25b6"
+    - "\u25b6" is followed by the command name and then a space.
+    - Named arguments (-f, --foo) should come before positional arguments
+    - If STDIN is required it can be specified with a pipe (\uff5c) after the parameters. STDIN is optional.
     
-    Your current working directory is: {workspace}
+    Examples:
+    ```
+    \u25b6command_name -f v2 --foo v3 v1\uff5cDo something\u25a0
+    \u2705File updated successfully\u25a0
     
-    - You SHOULD explain your reasoning clearly and offer context for your suggestions. Do this prior to making any command calls.
-    - You MUST not write anything after a command call.
-    - YOU SHOULD make incremental, focused changes when modifying files rather than rewriting everything.
+    \u25b6command_name -f v2 --foo v3 v1\uff5cErroneous data\u25a0
+    \u274cError\u25a0
+    ```
     
-    Be helpful, accurate, and respectful in your interactions.
+    VERY VERY IMPORTANT:
+    - ALWAYS add the \u25b6 at the start of the command call
+    - ALWAYS add the \u25a0 at the end of the command call
+    - DO NOT make multiple command calls in parallel. Wait for the results to complete first.
+    - Results MUST start with "\u2705" if executed successfully or "\u274c" if executed with an error.
     """
+    )
 
-    def __init__(self, session: Session):
-        # Start with the default instructions
-        instructions = self.DEFAULT_INSTRUCTIONS_TEMPLATE.format(
-            workspace=session._workspace
-        )
+    def __init__(
+        self,
+        session: Session,
+        ephemeral: bool = True,
+        configuration: Dict[str, str] = None,
+    ):
+        self.configuration = configuration or {}
+
+        # Read the default instructions template from file
+        template_file = os.path.join(os.path.dirname(__file__), "prompts/neo.txt")
+        with open(template_file, "r") as f:
+            template = f.read()
+
+        # Format the template with the workspace path
+        instructions = template.format(workspace=session._workspace)
 
         # Check if .neorules exists in the workspace directory
         neorules_path = os.path.join(session.workspace, ".neorules")
@@ -79,8 +80,14 @@ class Agent:
             except Exception as e:
                 logger.error(f"Error reading .neorules file: {e}")
 
-        self._instructions = instructions
+        self.instructions = instructions
         self.session = session
+        self.asm = AgentStateMachine(
+            client=session.client,
+            session_id=session.session_id,
+            shell=session.shell,
+            configuration=self.configuration,
+        )
 
         # Ensure session directory exists
         try:
@@ -98,213 +105,70 @@ class Agent:
         # Path to state file
         self.state_file = os.path.join(session_dir, "agent_state.json")
 
-        # Try to load state from file if it exists
-        if os.path.exists(self.state_file):
-            try:
-                with open(self.state_file, "r") as f:
-                    state_data = json.load(f)
-                self.state = AgentState.from_dict(state_data)
-                logger.info(f"Loaded agent state from {self.state_file}")
-            except Exception as e:
-                logger.error(f"Error loading agent state: {e}")
-                # Initialize with empty state if loading fails
-                self.state = AgentState(messages=[])
-        else:
-            # Initialize with empty state if no state file exists
-            self.state = AgentState(messages=[])
+        self.ephemeral = ephemeral
+        # Load state from file or create a fresh state
 
-        # Get available commands
-        self._command_names = self.session.shell.list_commands()
+        # Configure command names
+        self._command_names = session.shell.list_commands()
+
+        if self._command_names:
+            instructions = instructions + "\n\n".join(
+                [
+                    self.COMMAND_INSTRUCTIONS,
+                    *[
+                        self.session.shell.describe(cmd_name)
+                        for cmd_name in self._command_names
+                    ],
+                ]
+            )
+
+        if ephemeral:
+            self.state = AgentState(system=instructions)
+        else:
+            self.state = AgentState.load(self.state_file, system=instructions)
+
+        # Log agent initialization
         logger.info(
             f"Agent initialized with {len(self._command_names)} available commands: {', '.join(self._command_names)}"
         )
 
-        # Path to chat log file
-        self.chat_log_file = os.path.join(self.session.internal_session_dir, "chat.log")
-
-        # Log agent initialization
-        self._log_to_chat("SYSTEM: Neo initialized and ready to assist.", is_init=True)
-
-    def _log_to_chat(self, message: str, is_init: Optional[bool] = False) -> None:
-        """
-        Log a message to the chat log file.
-
-        Args:
-            message: The message to log
-            is_init: Whether this is an initialization message (to optionally add header info)
-        """
-        try:
-            # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(self.chat_log_file), exist_ok=True)
-
-            # Get current timestamp
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            # Open in append mode
-            with open(self.chat_log_file, "a", encoding="utf-8") as f:
-                # For first entry, add header
-                if (
-                    is_init
-                    and not os.path.exists(self.chat_log_file)
-                    or os.path.getsize(self.chat_log_file) == 0
-                ):
-                    f.write(f"=== Neo Chat Log - Started: {timestamp} ===\n\n")
-
-                # Write message with timestamp
-                f.write(f"[{timestamp}] {message}\n\n")
-
-        except Exception as e:
-            logger.error(f"Error writing to chat log: {e}")
-
     def process(self, user_message: str) -> Iterator[Message]:
         """
-        Process a user message and generate a response.
-
-        Returns:
-            Iterator of messages from the assistant and command results
-        """
-        logger.info("Processing user message")
-
-        try:
-            # Log user message
-            self._log_to_chat(f"USER: {user_message}")
-
-            # Add message to state
-            self.state.messages.append(
-                Message(role="user", content=[TextBlock(user_message)])
-            )
-            self._save_state()
-
-            # Process messages, handling any command calls
-            yield from self._process()
-
-            # Get the final response (should be the last message from the assistant)
-            final_response = self.state.messages[-1]
-            if final_response.role != "assistant":
-                logger.warning("Last message in state is not from assistant")
-                yield Message(role="assistant", content=[TextBlock("I had an issue processing your request. Please try again.")])
-                return
-
-            logger.info("User message processed successfully")
-            # Note: We don't yield the final response here as it's already yielded in _process()
-
-        except Exception as e:
-            logger.exception(f"Error processing user message: {e}")
-            # Provide a user-friendly error mes sage
-            yield Message(role="assistant", content=[TextBlock("I encountered an error processing your request. Please try again or rephrase your message.")])
-
-    def _do_state_change(self, func: Callable[AgentState, None]) -> None:
-        """
-        Perform a state change and save the updated state.
+        Process a user message and update the agent's state.
 
         Args:
-            func: A function that modifies the state
-        """
-        func(self.state)
-        self._save_state()
-
-    def _save_state(self) -> None:
-        """
-        Save the current agent state to the state file.
-
-        This ensures that conversations can be resumed between sessions.
-        """
-        try:
-            # Convert state to dictionary
-            state_data = self.state.to_dict()
-
-            # Ensure directory exists
-            os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
-
-            # Write to file (with pretty printing for readability)
-            with open(self.state_file, "w") as f:
-                json.dump(state_data, f, indent=2)
-
-            logger.info(f"Saved agent state to {self.state_file}")
-        except Exception as e:
-            logger.error(f"Error saving agent state: {e}")
-
-    def _prune_state(self) -> None:
-        """
-        Prune the state by removing old messages.
-
-        This method ensures that the state does not grow indefinitely.
-        """
-        # Only expected to be called when last message is from assistant
-        assert (
-            self.state.messages[-1].role == "assistant"
-        ), f"Expected last message to be from assistant, got {self.state.messages[-1].role}"
-
-        # Only trigger if state has more than 15 messages
-        if len(self.state.messages) < 200:
-            return
-
-        # Only keep the last 6 messages on pruning
-        self._do_state_change(
-            lambda state: state.update(messages=state.messages[-100:])
-        )
-
-    def _process(self) -> Iterator[Message]:
-        """
-        Process messages and manually handle any command calls.
-
-        Executes commands as needed and updates memory after each model processing step.
+            user_message: The text message from the user
 
         Returns:
             Iterator of messages from the assistant and command results
         """
-        # Get the client from the context
-        client = self.session.client
 
-        # Keep processing until last message in state is from assistant and does not have command calls
-        while not (
-            self.state.messages[-1].role == "assistant"
-            and not self.state.messages[-1].has_command_executions()
-        ):
-            # Process the messages with the model (without auto-executing commands)
-            messages_to_send = self.state.messages.copy()
-            messages_to_send[-1] = messages_to_send[-1].copy(
-                metadata={"cache-control": True}
-            )
-            if len(messages_to_send) >= 3:
-                messages_to_send[-3] = messages_to_send[-3].copy(
-                    metadata={"cache-control": True}
+        state = self.state
+        asm = self.asm
+        state = state.add_messages(Message(role="user", content=user_message))
+
+        logger.info("Processing user message")
+
+        while True:
+            state, output = asm.step(state, self._command_names)
+
+            logger.info(
+                "Agent state:\n\n"
+                + "\n\n".join(
+                    [f"{msg.role}: {msg.model_text()}" for msg in state.messages]
                 )
-            current_response = client.process(
-                messages=(
-                    [Message(role="system", content=[TextBlock(self._instructions)])] + 
-                    messages_to_send
-                ),
-                commands=self._command_names,
-                session_id=self.session.session_id,
             )
 
-            # Add the response to state
-            self._do_state_change(lambda state: state.messages.append(current_response))
+            for msg in output.to_messages():
+                logger.info(f"ASSISTANT: {msg.model_text()}")
+                yield msg
+            state = asm.checkpoint_state(state)
+            state = asm.prune_state(state)
 
-            # Log assistant message
-            self._log_to_chat(f"NEO: {current_response.display_text()}")
+            if not self.ephemeral:
+                state.dump(self.state_file)
 
-            # Yield the assistant's response
-            yield current_response
+            self.state = state
 
-            self._prune_state()
-
-            # Extract command calls from the last message
-            if not current_response.has_command_executions():
+            if output.is_terminal():
                 break
-
-            # Get command calls from the response
-            command_calls = current_response.get_command_calls()
-            # Process commands manually using the shell
-            command_results = self.session.shell.process_commands(command_calls)
-
-            # Log command results
-            for result in command_results:
-                self._log_to_chat(f"SYSTEM: {result.model_text()}")
-                # Yield each command result
-
-            # Create a single user message with all results
-            result_message = Message(role="user", content=command_results)
-            yield result_message
-            self._do_state_change(lambda state: state.messages.append(result_message))

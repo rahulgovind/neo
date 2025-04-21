@@ -213,6 +213,37 @@ class SessionManager:
         return session
 
     @classmethod
+    def update_session(cls, session_id: str, workspace: Optional[str] = None) -> Optional["Session"]:
+        """
+        Update an existing session with new attributes.
+
+        Args:
+            session_id: The ID of the session to update
+            workspace: New workspace for the session
+
+        Returns:
+            Updated Session object if found, otherwise None
+        """
+        repository = cls._get_repository()
+        
+        # Check if session exists
+        existing_session = repository.find_session_by_id(session_id)
+        if not existing_session:
+            return None
+            
+        # Update the session in the database
+        updated_data = repository.update_session(
+            session_id=session_id,
+            workspace=workspace
+        )
+        
+        if not updated_data:
+            return None
+            
+        logger.info(f"Updated session '{updated_data['session_name']}' with ID {session_id} - new workspace: {workspace}")
+        return cls._create_session_from_data(updated_data)
+
+    @classmethod
     def _create_session_from_data(cls, session_data: Dict) -> "Session":
         """
         Create a Session object from database session data.

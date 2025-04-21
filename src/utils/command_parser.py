@@ -96,7 +96,6 @@ class CommandParser:
                     param.name,
                     help=param.description,
                     default=param.default,
-                    # Positional arguments cannot have 'required' parameter in argparse
                 )
             elif param.is_flag:
                 flag_args = []

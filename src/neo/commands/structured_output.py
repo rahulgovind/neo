@@ -18,7 +18,7 @@ from typing import Dict, Any, Optional, List
 
 from src.neo.shell.command import Command, CommandTemplate, CommandParameter
 from src.neo.session import Session
-from src.neo.core.messages import CommandResult
+from src.neo.core.messages import CommandResult, StructuredOutput
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -59,10 +59,24 @@ class StructuredOutputCommand(Command):
                 }
                 ▶output ｜{"x": 1, "y": "test", "z": [1.0, 2.0]}■
                 ✅Successfully processed output.■
+
+                Output to the "checkpoint" destination
+                ▶output -d checkpoint ｜{"x": 1, "y": "test", "z": [1.0, 2.0]}■
+                ✅Successfully processed output.■
                 """
             ),
             # Empty list of parameters as this command is not meant to be called directly
-            parameters=[],
+            parameters=[
+                CommandParameter(
+                    name="destination",
+                    description="Output destination",
+                    required=False,
+                    default="default",
+                    is_flag=True,
+                    short_flag="d",
+                    long_flag="destination",
+                )
+            ],
             requires_data=True,
         )
 
@@ -70,4 +84,8 @@ class StructuredOutputCommand(Command):
         self, session: Session, args: Dict[str, Any], data: Optional[str] = None
     ) -> CommandResult:
         # Command is never expected to be directly called on the shell.
-        raise NotImplementedError
+        return StructuredOutput(
+            content="Successfully processed output.",
+            destination=args.get("destination", "default"),
+            value=data
+        )

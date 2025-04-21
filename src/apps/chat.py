@@ -48,6 +48,7 @@ COMMANDS = {
     "/list": "List persistent sessions",
     "/switch": "Switch to a different persistent session",
     "/info": "Show current session info",
+    "/set": "Update session settings (e.g., /set workspace <path>)",
 }
 
 # Initialize console with soft-wrapping and highlighting
@@ -98,7 +99,15 @@ def print_message(message: Message) -> None:
         # For agent messages (Neo), display without a panel border
         # For agent messages, use Markdown for rich formatting
         # Print Neo's messages without a panel
-        console.print(Markdown(message.display_text()))
+        structured_output = message.structured_output()
+        if structured_output:
+            console.print(Panel(
+                renderable=Markdown(structured_output.display_text()),
+                border_style="green",
+                padding=(0, 1),
+            ))
+        else:
+            console.print(Markdown(message.display_text()))
 
 class MessageQueue:
 
@@ -300,6 +309,42 @@ def handle_command(command: str) -> None:
                 _update_session(new_session)
             except Exception as e:
                 console.print(f"[red]Failed to create session: {e}[/red]")
+    elif cmd == "set":
+        if not args or " " not in args:
+            console.print("[yellow]Usage: /set <setting> <value>[/yellow]")
+            console.print("[yellow]Available settings: workspace[/yellow]")
+        else:
+            # Split into setting name and value
+            parts = args.split(" ", 1)
+            setting = parts[0].lower()
+            value = parts[1].strip()
+            
+            try:
+                if setting == "workspace":
+                    # Verify the workspace path exists
+                    if not os.path.isdir(value):
+                        console.print(f"[red]Invalid workspace path: '{value}' is not a directory[/red]")
+                        return
+                        
+                    # Get absolute path
+                    abs_path = os.path.abspath(value)
+                    
+                    # Update session workspace
+                    updated_session = Service.update_session(session_id, workspace=abs_path)
+                    
+                    if not updated_session:
+                        console.print(f"[red]Failed to update workspace: Session '{session_id}' not found[/red]")
+                        return
+                    
+                    # Update session info in the application
+                    _update_session(updated_session)
+                    
+                    console.print(f"[green]Workspace updated to: [bold]{abs_path}[/bold][/green]")
+                else:
+                    console.print(f"[red]Unknown setting: {setting}[/red]")
+                    console.print("[yellow]Available settings: workspace[/yellow]")
+            except Exception as e:
+                console.print(f"[red]Error updating setting: {e}[/red]")
     else:
         console.print(f"[red]Unknown command: {cmd}[/red]")
         console.print("Use [blue]/help[/blue] to see available commands.")

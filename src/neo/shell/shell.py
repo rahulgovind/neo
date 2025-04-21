@@ -126,25 +126,9 @@ class Shell:
 
     def parse_command_call(self, command_call: CommandCall, output_schema: Optional[OutputType] = None) -> Union[CommandCall, StructuredOutput]:
         # Extract command content without markers
+        output_schema = output_schema or PrimitiveOutputType.RAW
         command_content = command_call.content[1:-1]
         parsed_cmd = self.parse(command_content)
-        
-        if parsed_cmd.name == "output":
-            # Get the data portion of the command
-            data = parsed_cmd.data
-            
-            if output_schema == PrimitiveOutputType.RAW:
-                # For raw output, use the data directly
-                return StructuredOutput(command_call.content, data)
-            elif data:
-                # For JSON schema, parse the data as JSON if it exists
-                try:
-                    parsed_data = json.loads(data)
-                    return StructuredOutput(command_call.content, parsed_data)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse JSON data: {e}")
-                    # Return the original command call if JSON parsing fails
-                    return command_call
         
         # Return the original command call for non-structured-output commands
         return CommandCall(
@@ -155,6 +139,7 @@ class Shell:
     def validate_command_calls(
         self, command_calls: List[CommandCall], output_schema: Optional[OutputType] = None
     ) -> List[CommandResult]:
+        output_schema = output_schema or PrimitiveOutputType.RAW
         validation_failures = []
         # Execute each command and collect the results
         num_standard_command_calls = 0
@@ -178,13 +163,12 @@ class Shell:
                     num_structured_output_calls += 1
                 else:
                     num_standard_command_calls += 1
+                if num_structured_output_calls > 1:
+                    raise ValueError("Only a single structured output call may be provided at a time")
                 if num_structured_output_calls > 0 and output_schema is None:
                     raise ValueError(f"{cmd_call.content} - A structured output was not requested")
                 if num_structured_output_calls > 0 and num_standard_command_calls > 0:
                     raise ValueError("Structured output cannot be combined with other commands")
-                if num_structured_output_calls > 1:
-                    raise ValueError("Only one structured output command is allowed")
-                    
             except Exception as e:
                 validation_failure = CommandResult(
                     content=f"{cmd_call.content} - Command is not valid",
@@ -214,8 +198,10 @@ class Shell:
         Raises:
             ValueError: If the command is not registered
         """
+
         command = self.get_command(command_name)
         return command.execute(self._session, parameters, data)
+        
 
     def parse_and_execute(self, command_input: str) -> CommandResult:
         """
@@ -259,31 +245,21 @@ class Shell:
 
         # Execute each command and collect the results
         for cmd_call in commands:
+            # Parse the command
+            cmd_statement = cmd_call.content[1:-1]
+            parsed_cmd = self.parse(cmd_statement)
             try:
-                if not cmd_call.content.endswith(COMMAND_END):
-                    error_result = CommandResult(
-                        content=None,
-                        success=False,
-                        error="Command call missing end marker",
-                    )
-                    result_blocks.append(error_result)
-                    continue
-
-                # Parse the command
-                cmd_statement = cmd_call.content[1:-1]
-                parsed_cmd = self.parse(cmd_statement)
-
                 # Execute the command
                 result = self.execute(
                     parsed_cmd.name, parsed_cmd.parameters, parsed_cmd.data
                 )
 
+                result.command_call = parsed_cmd
                 # Add the result to our collection
                 result_blocks.append(result)
-
             except Exception as e:
                 # Create an error result and add it to our collection
-                error_result = CommandResult(content=str(e), success=False, error=e)
+                error_result = CommandResult(content=str(e), success=False, error=e, command_call=parsed_cmd)
                 result_blocks.append(error_result)
 
         for result in result_blocks:
@@ -324,5 +300,5 @@ class Shell:
         # Register structured output command - import locally to avoid circular imports
         from src.neo.commands.structured_output import StructuredOutputCommand
         self.register_command(StructuredOutputCommand())
-
+        
         logger.debug(f"Registered built-in commands: {', '.join(self.list_commands())}")

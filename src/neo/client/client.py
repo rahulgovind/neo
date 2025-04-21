@@ -10,7 +10,12 @@ from openai._utils import transform
 from openai.types import Completion
 
 from src.neo.client.base import BaseClient
-from src.neo.core.constants import COMMAND_END, COMMAND_START, SUCCESS_PREFIX, ERROR_PREFIX
+from src.neo.core.constants import (
+    COMMAND_END,
+    COMMAND_START,
+    SUCCESS_PREFIX,
+    ERROR_PREFIX,
+)
 from src.neo.core.messages import CommandCall, Message, TextBlock
 from src.neo.shell import Shell
 
@@ -25,29 +30,6 @@ class Client:
     """
 
     # Instructions for command execution format
-    COMMAND_INSTRUCTIONS = """
-    When executing commands, follow this exact format:
-    
-    - The command starts with "\u25b6"
-    - "\u25b6" is followed by the command name and then a space.
-    - Named arguments (-f, --foo) should come before positional arguments
-    - If STDIN is required it can be specified with a pipe (\uff5c) after the parameters. STDIN is optional.
-    
-    Examples:
-    ```
-    \u25b6command_name -f v2 --foo v3 v1\uff5cDo something\u25a0
-    \u2705File updated successfully\u25a0
-    
-    \u25b6command_name -f v2 --foo v3 v1\uff5cErroneous data\u25a0
-    \u274cError\u25a0
-    ```
-    
-    VERY VERY IMPORTANT:
-    - ALWAYS add the \u25b6 at the start of the command call
-    - ALWAYS add the \u25a0 at the end of the command call
-    - DO NOT make multiple command calls in parallel. Wait for the results to complete first.
-    - Results MUST start with "\u2705" if executed successfully or "\u274c" if executed with an error.
-    """
 
     def __init__(self, shell: Shell):
         self._client = BaseClient()
@@ -62,6 +44,14 @@ class Client:
         session_id: Optional[str] = None,
     ) -> Message:
         messages_to_send = messages.copy()
+
+        for message in messages_to_send:
+            message.metadata["cache-control"] = False
+
+        messages_to_send[-1].metadata["cache-control"] = True
+        if len(messages_to_send) >= 3:
+            messages_to_send[-3].metadata["cache-control"] = True
+
         num_requests = 0
 
         while True:
@@ -80,14 +70,19 @@ class Client:
                 return response
 
             command_calls = response.get_command_calls()
-            validation_results = self._shell.validate_command_calls(command_calls, output_schema)
-            validation_failures = [result for result in validation_results if not result.success]
-            
+            validation_results = self._shell.validate_command_calls(
+                command_calls, output_schema
+            )
+            validation_failures = [
+                result for result in validation_results if not result.success
+            ]
+
             if len(validation_failures) == 0:
                 transformed_blocks = []
                 for block in response.content:
                     if isinstance(block, CommandCall):
-                        transformed_blocks.append(self._shell.parse_command_call(block, output_schema))
+                        block.parsed_cmd = self._shell.parse_command_call(block, output_schema)
+                        transformed_blocks.append(block)
                     else:
                         transformed_blocks.append(block)
                 return Message(
@@ -104,9 +99,9 @@ class Client:
             messages_to_send = messages.copy() + [
                 response,
                 Message(
-                    role="user", 
-                    content=[*validation_failures, TextBlock(correction_message)]
-                )
+                    role="user",
+                    content=[*validation_failures, TextBlock(correction_message)],
+                ),
             ]
 
     def _process(
@@ -134,28 +129,30 @@ class Client:
         processed_messages.append(
             Message(
                 role="system",
-                content=messages[0].content,
+                content=[
+                    *messages[0].content,
+                ],
                 metadata=messages[0].metadata,
             )
         )
 
-        if commands:
-            processed_messages[0].add_content(
-                TextBlock(
-                    "\n\n".join(
-                        [self.COMMAND_INSTRUCTIONS]
-                        + [self._shell.describe(cmd_name) for cmd_name in commands]
-                    )
-                )
-            )
-
         # Convert all message blocks to TextBlock
         for message in messages[1:]:
+            if message.role == "developer":
+                prefix = "<SYSTEM>"
+                suffix = "</SYSTEM>"
+                role = "user"
+            else:
+                prefix = ""
+                suffix = ""
+                role = message.role
+
             processed_messages.append(
                 Message(
-                    role=message.role,
+                    role=role,
                     content=[
-                        TextBlock(text=block.model_text()) for block in message.content
+                        TextBlock(text=prefix + block.model_text() + suffix)
+                        for block in message.content
                     ],
                     metadata=message.metadata,
                 )

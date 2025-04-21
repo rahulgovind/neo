@@ -31,31 +31,6 @@ class BaseClient:
     Handles client instantiation, request/response logging, and command parsing.
     """
 
-    # Instructions for command execution format
-    COMMAND_INSTRUCTIONS = """
-    When executing commands, follow this exact format:
-    
-    - The command starts with "\u25b6"
-    - "\u25b6" is followed by the command name and then a space.
-    - Named arguments (-f, --foo) should come before positional arguments
-    - If STDIN is required it can be specified with a pipe (\uff5c) after the parameters. STDIN is optional.
-    
-    Examples:
-    ```
-    \u25b6command_name -f v2 --foo v3 v1\uff5cDo something\u25a0
-    \u2705File updated successfully\u25a0
-    
-    \u25b6command_name -f v2 --foo v3 v1\uff5cErroneous data\u25a0
-    \u274cError\u25a0
-    ```
-    
-    VERY VERY IMPORTANT:
-    - ALWAYS add the \u25b6 at the start of the command call
-    - ALWAYS add the \u25a0 at the end of the command call
-    - DO NOT make multiple command calls in parallel. Wait for the results to complete first.
-    - Results MUST start with "\u2705" if executed successfully or "\u274c" if executed with an error.
-    """
-
     def __init__(self):
         """
         Initialize the LLM client using environment variables.
@@ -247,6 +222,8 @@ class BaseClient:
         logger.info(
             f"Sending request {request_id} with {len(request_data.get('messages', []))} messages to {model_name}"
         )
+        
+        start_time = time.time()
 
         try:
             # Send the request to the LLM
@@ -255,6 +232,9 @@ class BaseClient:
 
             # Convert the response to a dictionary for logging
             response_dict = response.to_dict()
+
+            # Calculate elapsed time
+            elapsed_time = time.time() - start_time
 
             # Log successful response
             response_log_data = {
@@ -268,11 +248,14 @@ class BaseClient:
                 "meta": {
                     "message_count": len(request_data.get("messages", [])),
                     "approx_num_tokens": self.count_tokens(request_data),
+                    "elapsed_time": elapsed_time,
                 },
             }
 
             # Log the response using the structured logger
             self._logger.record("requests", response_log_data)
+
+            logger.info(f"Request processed in {elapsed_time:.2f} seconds")
 
             return response
 
@@ -399,7 +382,7 @@ class BaseClient:
         message = Message(role="assistant", metadata=metadata, content=content)
 
         logger.info(
-            f"ASSISTANT ({request_data.get('model', 'unknown')}): {message.text()}"
+            f"Received the following response from ({request_data.get('model', 'unknown')}): {message.text()}"
         )
         
         return message

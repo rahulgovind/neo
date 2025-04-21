@@ -21,20 +21,25 @@ from src.neo.core.constants import (
 
 from typing import Union
 
+
 # Define OutputType
 class PrimitiveOutputType:
     RAW = "raw"
 
+
 OutputType = Union[PrimitiveOutputType, Dict[str, Any]]
+
 
 @dataclass
 class ParsedCommand:
     """
     Represents a parsed command with name, parameters, and optional data.
     """
+
     name: str
     parameters: Dict[str, Any]
     data: Optional[str] = None
+
 
 class ContentBlock:
     """Base class for different types of content in a message."""
@@ -48,29 +53,29 @@ class ContentBlock:
     def display_text(self) -> str:
         """Returns text suitable for display to the user."""
         return self.model_text()
-        
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert the content block to a dictionary for serialization."""
         raise NotImplementedError("Subclasses must implement to_dict")
-        
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ContentBlock":
         """Create a content block from a dictionary."""
         raise NotImplementedError("Subclasses must implement from_dict")
-        
+
     @classmethod
     def create_from_dict(cls, data: Dict[str, Any]) -> "ContentBlock":
         """Factory method to create the appropriate ContentBlock subclass."""
         block_type = data.get("type", "TextBlock")
-        
+
         if block_type == "TextBlock":
             return TextBlock.from_dict(data)
+        elif block_type == "StructuredOutput":
+            return StructuredOutput.from_dict(data)
         elif block_type == "CommandCall":
             return CommandCall.from_dict(data)
         elif block_type == "CommandResult":
             return CommandResult.from_dict(data)
-        elif block_type == "StructuredOutput":
-            return StructuredOutput.from_dict(data)
         else:
             # Fail on unknown block types
             raise ValueError(f"Unknown content block type: {block_type}")
@@ -84,69 +89,35 @@ class TextBlock(ContentBlock):
 
     def model_text(self) -> str:
         return self._text
-        
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert the TextBlock to a dictionary for serialization."""
-        return {
-            "type": "TextBlock",
-            "value": self._text
-        }
-        
+        return {"type": "TextBlock", "value": self._text}
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TextBlock":
         """Create a TextBlock from a dictionary."""
         return cls(data.get("value", ""))
 
-class StructuredOutput(ContentBlock):
-    """Represents a structured output content block in a message."""
-
-    def __init__(self, content: str, value: Optional[Any] = None):
-        self.content = content
-        self.value = value
-    
-    def model_text(self) -> str:
-        return self.content
-        
-    def display_text(self) -> str:
-        return str(self.value)
-        
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert the StructuredOutput to a dictionary for serialization."""
-        return {
-            "type": "StructuredOutput",
-            "content": self.content
-        }
-        
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "StructuredOutput":
-        """Create a StructuredOutput from a dictionary."""
-        return cls(
-            content=data.get("content", ""),
-        )
 
 class CommandCall(ContentBlock):
     """Represents a command call content block in a message."""
 
-    def __init__(self, content: str, parsed_cmd: Optional['ParsedCommand'] = None):
+    def __init__(self, content: str, parsed_cmd: Optional["ParsedCommand"] = None):
         self.content = content
         self.parsed_cmd = parsed_cmd
 
     def model_text(self) -> str:
         return self.content
-            
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert the CommandCall to a dictionary for serialization."""
-        return {
-            "type": "CommandCall",
-            "value": self.content
-        }
-        
+        return {"type": "CommandCall", "value": self.content}
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CommandCall":
         """Create a CommandCall from a dictionary."""
-        return cls(
-            content=data.get("value", "")
-        )
+        return cls(content=data.get("value", ""))
 
 
 def _escape_special_chars(content: str) -> str:
@@ -231,6 +202,7 @@ class CommandResult(ContentBlock):
         error: Optional[Exception] = None,
         summary: Optional[str] = None,
         result: Optional[Any] = None,
+        command_call: Optional[ParsedCommand] = None,
     ):
         self._text = content  # Keep TextBlock compatibility
         self.content = content
@@ -238,6 +210,7 @@ class CommandResult(ContentBlock):
         self.error = error
         self.summary = summary
         self.result = result
+        self.command_call = command_call
 
     def model_text(self) -> str:
         prefix = SUCCESS_PREFIX if self.success else ERROR_PREFIX
@@ -250,7 +223,7 @@ class CommandResult(ContentBlock):
         if self.summary is not None:
             return self.summary
         return self.model_text()
-        
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert the CommandResult to a dictionary for serialization.
         Note: error and result are intentionally excluded.
@@ -259,16 +232,45 @@ class CommandResult(ContentBlock):
             "type": "CommandResult",
             "value": self.content,
             "success": self.success,
-            "summary": self.summary
+            "summary": self.summary,
         }
-        
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CommandResult":
         """Create a CommandResult from a dictionary."""
         return cls(
             content=data.get("value", ""),
             success=data.get("success", True),
-            summary=data.get("summary")
+            summary=data.get("summary"),
+        )
+
+
+class StructuredOutput(CommandResult):
+    """Represents a structured output content block in a message."""
+
+    def __init__(
+        self, content: str, value: Optional[Any] = None, destination: str = "default"
+    ):
+        super().__init__(content, success=True, result=value)
+        self.value = value
+        self.destination = destination
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the StructuredOutput to a dictionary for serialization."""
+        return {
+            "type": "StructuredOutput",
+            "content": self.content,
+            "value": self.value,
+            "destination": self.destination,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "StructuredOutput":
+        """Create a StructuredOutput from a dictionary."""
+        return cls(
+            content=data.get("content", ""),
+            value=data.get("value"),
+            destination=data.get("destination"),
         )
 
 
@@ -280,14 +282,20 @@ class Message:
     def __init__(
         self,
         role: str,
-        content: List[ContentBlock] = None,
+        content: Union[str, List[ContentBlock]],
         metadata: Optional[Dict[str, Any]] = None,
     ):
         self.role = role
+        if isinstance(content, str):
+            content = [TextBlock(content)]
         self.content = content or []
+        assert all(
+            isinstance(block, ContentBlock) for block in self.content
+        ), "All content blocks must be instances of ContentBlock"
         self.metadata = metadata or {}
 
     def add_content(self, content: ContentBlock) -> None:
+        assert isinstance(content, ContentBlock), "Content must be a ContentBlock"
         self.content.append(content)
 
     def has_command_executions(self) -> bool:
@@ -300,13 +308,20 @@ class Message:
         """Get all text content from the message, joined with newlines."""
         text_parts = [block.model_text() for block in self.content]
         return "\n".join(text_parts)
-    
+
+    def command_results(self) -> List[CommandResult]:
+        return [block for block in self.content if isinstance(block, CommandResult)]
+
     def structured_output(self) -> Optional[StructuredOutput]:
-        for block in self.content:
-            if isinstance(block, StructuredOutput):
-                return block
+        structured_output_blocks = [
+            block
+            for block in self.command_results()
+            if isinstance(block, StructuredOutput)
+        ]
+        if structured_output_blocks:
+            return structured_output_blocks[0]
         return None
-        
+
     def model_text(self) -> str:
         """Get all model text content from the message, joined with newlines."""
         text_parts = [block.model_text() for block in self.content]
