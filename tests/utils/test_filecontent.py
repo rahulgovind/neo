@@ -29,11 +29,9 @@ class TestFileContent(unittest.TestCase):
         """Test that read function returns a FileContent object."""
         result = read(self.test_file_path)
         self.assertIsInstance(result, FileContent)
-        self.assertTrue(result.success)
         # The file has 5 lines plus a final newline which splits into 6 lines
         self.assertEqual(result.line_count, 6)
         self.assertEqual(len(result.lines), 6)
-
     
     def test_read_with_line_numbers(self):
         """Test that FileContent correctly formats with line numbers."""
@@ -57,10 +55,8 @@ class TestFileContent(unittest.TestCase):
     
     def test_read_nonexistent_file(self):
         """Test that FileContent correctly handles nonexistent files."""
-        result = read("/nonexistent/file.txt")
-        self.assertFalse(result.success)
-        self.assertIsNotNone(result.error_message)
-        self.assertIn("File not found", result.error_message)
+        with self.assertRaises(FileNotFoundError):
+            read("/nonexistent/file.txt")
     
     def test_truncation_indicators(self):
         """Test that FileContent correctly shows truncation indicators."""
@@ -68,12 +64,17 @@ class TestFileContent(unittest.TestCase):
         result = read(self.test_file_path, from_=2, until=4)
         formatted = result.format_without_line_numbers()
         
-        # Should indicate truncation at both ends
-        self.assertTrue(result.is_truncated_start)
-        self.assertTrue(result.is_truncated_end)
+        # Calculate if truncation should be shown
+        is_truncated_start = result.displayed_range[0] > 0
+        is_truncated_end = result.displayed_range[1] < result.line_count
+        
+        # Verify truncation indicators
+        self.assertTrue(is_truncated_start)
+        self.assertTrue(is_truncated_end)
         
         # Output should contain truncation indicators
         self.assertIn("additional lines", formatted)
+
 
     def test_stringification(self):
         """Test that FileContent's string representation includes line numbers by default."""

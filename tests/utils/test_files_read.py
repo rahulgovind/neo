@@ -29,7 +29,6 @@ class TestFilesReadFunction(unittest.TestCase):
         """Test that read function now returns a FileContent object."""
         result = read(self.test_file_path)
         self.assertIsInstance(result, FileContent)
-        self.assertTrue(result.success)
         
         # Verify core attributes are set correctly
         self.assertIsNotNone(result.content)
@@ -59,14 +58,10 @@ class TestFilesReadFunction(unittest.TestCase):
         self.assertNotIn("1:Line", formatted)
     
     def test_error_handling(self):
-        """Test that read function properly handles errors."""
-        result = read("/nonexistent/file.txt")
-        
-        # Should return FileContent with error info
-        self.assertIsInstance(result, FileContent)
-        self.assertFalse(result.success)
-        self.assertIsNotNone(result.error_message)
-        self.assertIn("not found", result.error_message)
+        """Test that read function properly raises exceptions for errors."""
+        # Should raise FileNotFoundError for nonexistent file
+        with self.assertRaises(FileNotFoundError):
+            read("/nonexistent/file.txt")
     
     def test_with_line_range(self):
         """Test reading specific line ranges."""
@@ -79,9 +74,14 @@ class TestFilesReadFunction(unittest.TestCase):
         self.assertIn("Line 2", result.lines[0])
         self.assertIn("Line 4", result.lines[2])
         
-        # Verify truncation flags
-        self.assertTrue(result.is_truncated_start)
-        self.assertTrue(result.is_truncated_end)
+        # Calculate if truncation should be shown in formatted output
+        is_truncated_start = result.displayed_range[0] > 0
+        is_truncated_end = result.displayed_range[1] < result.line_count
+        
+        # Verify truncation is correctly calculated
+        self.assertTrue(is_truncated_start)
+        self.assertTrue(is_truncated_end)
+
 
 
 if __name__ == "__main__":

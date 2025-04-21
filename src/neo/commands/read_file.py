@@ -214,41 +214,59 @@ class ReadFileCommand(Command):
             except ValueError:
                 return CommandResult(success=False, content=f"Invalid value for --limit. Found {limit}. Expected a number.")
 
-        # Read the file content - now returns a FileContent object
-        file_content = read(
-            full_path,
-            include_line_numbers=include_line_numbers,
-            from_=from_line,
-            until=until_line,
-            limit=limit,
-        )
+        try:
+            # Read the file content - now returns a FileContent object or raises an exception
+            file_content = read(
+                full_path,
+                include_line_numbers=include_line_numbers,
+                from_=from_line,
+                until=until_line,
+                limit=limit,
+            )
 
-        # Check if operation was not successful
-        if not file_content.success:
-            return CommandResult(success=False, content=file_content.error_message)
+            # Format the output based on whether line numbers are requested
+            if include_line_numbers:
+                formatted_content = file_content.format_with_line_numbers()
+            else:
+                formatted_content = file_content.format_without_line_numbers()
 
-        # Format the output based on whether line numbers are requested
-        if include_line_numbers:
-            formatted_content = file_content.format_with_line_numbers()
-        else:
-            formatted_content = file_content.format_without_line_numbers()
-
-        # Create a summary of the operation
-        file_path = os.path.basename(full_path)
-        summary = f"Read file: {file_path}"
-        
-        # Add line range info to summary if applicable
-        if from_line is not None or until_line is not None:
-            line_range = ""
-            if from_line is not None:
-                line_range += f"from line {from_line} "
-            if until_line is not None:
-                line_range += f"to line {until_line}"
-            summary += f" ({line_range.strip()})"
+            # Create a summary of the operation
+            file_path = os.path.basename(full_path)
+            summary = f"Read file: {file_path}"
             
-        # Add displayed range info
-        start_line, end_line = file_content.displayed_range
-        summary += f" (showing lines {start_line+1}-{end_line} of {file_content.line_count})"
+            # Add line range info to summary if applicable
+            if from_line is not None or until_line is not None:
+                line_range = ""
+                if from_line is not None:
+                    line_range += f"from line {from_line} "
+                if until_line is not None:
+                    line_range += f"to line {until_line}"
+                summary += f" ({line_range.strip()})"
+                
+            # Add displayed range info
+            start_line, end_line = file_content.displayed_range
+            summary += f" (showing lines {start_line+1}-{end_line} of {file_content.line_count})"
 
-        return CommandResult(content=formatted_content, success=True, summary=summary)
+            return CommandResult(content=formatted_content, success=True, summary=summary)
+            
+        except FileNotFoundError as e:
+            return CommandResult(success=False, content=str(e))
+        except IsADirectoryError as e:
+            return CommandResult(success=False, content=str(e))
+        except PermissionError as e:
+            return CommandResult(success=False, content=f"Permission denied: {str(e)}")
+        except UnicodeDecodeError:
+            return CommandResult(success=False, content=f"File is not text or has unknown encoding: {full_path}")
+        except ValueError as e:
+            return CommandResult(success=False, content=f"Invalid parameters: {str(e)}")
+        except IOError as e:
+            # Handle any other file I/O errors
+            logger.exception("Unexpected I/O error: %s", str(e))
+            return CommandResult(success=False, content=f"Error reading file: {str(e)}")
+        except Exception as e:  # pylint: disable=broad-except
+            # This is a fallback for any unforeseen errors
+            logger.exception("Unexpected error reading file: %s", full_path)
+            return CommandResult(success=False, content=f"Unexpected error: {str(e)}")
+
+
 

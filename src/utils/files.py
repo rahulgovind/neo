@@ -25,29 +25,26 @@ class FileContent:
     lines: List[str]  # List of individual lines
     line_count: int  # Total number of lines in the file
     displayed_range: Tuple[int, int]  # The range of lines displayed (0-indexed)
-    success: bool  # Whether the read operation was successful
-    error_message: Optional[str] = None  # Error message if success is False
-    is_truncated_start: bool = False  # Whether content is truncated at the start
-    is_truncated_end: bool = False  # Whether content is truncated at the end
-    lines_before: int = 0  # Number of lines omitted before the selection
-    lines_after: int = 0  # Number of lines omitted after the selection
     
     def format_with_line_numbers(self) -> str:
         """Format the content with line numbers."""
         result_lines = []
         
-        # Add indicator for lines before the selection
-        if self.is_truncated_start:
-            result_lines.append(f"... {self.lines_before} additional lines")
+        # Add indicator for lines before the selection if truncated at start
+        start_line = self.displayed_range[0]
+        if start_line > 0:
+            lines_before = start_line
+            result_lines.append(f"... {lines_before} additional lines")
         
         # Add lines with line numbers
-        start_line = self.displayed_range[0]
         for i, line in enumerate(self.lines, start=start_line + 1):  # Convert to 1-indexed
             result_lines.append(f"{i}:{line}")
         
-        # Add indicator for lines after the selection
-        if self.is_truncated_end:
-            result_lines.append(f"... {self.lines_after} additional lines")
+        # Add indicator for lines after the selection if truncated at end
+        end_line = self.displayed_range[1]
+        if end_line < self.line_count:
+            lines_after = self.line_count - end_line
+            result_lines.append(f"... {lines_after} additional lines")
             
         return "\n".join(result_lines)
     
@@ -55,34 +52,27 @@ class FileContent:
         """Format the content without line numbers."""
         result_lines = []
         
-        # Add indicator for lines before the selection
-        if self.is_truncated_start:
-            result_lines.append(f"... {self.lines_before} additional lines")
+        # Add indicator for lines before the selection if truncated at start
+        start_line = self.displayed_range[0]
+        if start_line > 0:
+            lines_before = start_line
+            result_lines.append(f"... {lines_before} additional lines")
         
         # Add lines without line numbers
         result_lines.extend(self.lines)
         
-        # Add indicator for lines after the selection
-        if self.is_truncated_end:
-            result_lines.append(f"... {self.lines_after} additional lines")
+        # Add indicator for lines after the selection if truncated at end
+        end_line = self.displayed_range[1]
+        if end_line < self.line_count:
+            lines_after = self.line_count - end_line
+            result_lines.append(f"... {lines_after} additional lines")
             
         return "\n".join(result_lines)
     
     def __str__(self) -> str:
         """String representation with line numbers by default."""
         return self.format_with_line_numbers()
-    
-    @classmethod
-    def error(cls, message: str) -> 'FileContent':
-        """Create an error FileContent object."""
-        return cls(
-            content="",
-            lines=[],
-            line_count=0,
-            displayed_range=(0, 0),
-            success=False,
-            error_message=message
-        )
+
 
 from src.neo.core.constants import (
     COMMAND_START,
@@ -118,111 +108,89 @@ def read(
 
     Returns:
         FileContent object containing the file contents and metadata
+
+    Raises:
+        FileNotFoundError: If the file does not exist
+        IsADirectoryError: If the path is a directory, not a file
+        PermissionError: If the user lacks permission to read the file
+        UnicodeDecodeError: If the file cannot be decoded as text
+        ValueError: If the line range parameters are invalid
+        IOError: For other file-related errors
     """
     logger.info(f"Reading file '{path}'")
 
-    try:
-        if not os.path.exists(path):
-            logger.warning(f"File not found: {path}")
-            return FileContent.error(f"File not found: {path}")
+    if not os.path.exists(path):
+        logger.warning(f"File not found: {path}")
+        raise FileNotFoundError(f"File not found: {path}")
 
-        if not os.path.isfile(path):
-            logger.warning(f"Path is not a file: {path}")
-            return FileContent.error(f"Path is not a file: {path}")
+    if not os.path.isfile(path):
+        logger.warning(f"Path is not a file: {path}")
+        raise IsADirectoryError(f"Path is not a file: {path}")
 
-        with open(path, "r", encoding="utf-8") as f:
-            # Read the file content directly to preserve the exact format including final newline
-            content = f.read()
+    with open(path, "r", encoding="utf-8") as f:
+        # Read the file content directly to preserve the exact format including final newline
+        content = f.read()
 
-            # Split into lines for processing
-            lines = content.split("\n")
-            total_lines = len(lines)
+        # Split into lines for processing
+        lines = content.split("\n")
+        total_lines = len(lines)
 
-            # Set default start and end lines
-            start_line = 0
-            end_line = total_lines
-            read_entire_file = limit == -1
+        # Set default start and end lines
+        start_line = 0
+        end_line = total_lines
+        read_entire_file = limit == -1
 
-            try:
-                # Process from_ parameter if provided
-                if from_ is not None:
-                    # Handle negative indices (counting from end)
-                    if from_ < 0:
-                        start_line = max(0, total_lines + from_)
-                    else:
-                        # Convert to 0-indexed
-                        start_line = max(0, from_ - 1)
+        # Process from_ parameter if provided
+        if from_ is not None:
+            # Handle negative indices (counting from end)
+            if from_ < 0:
+                start_line = max(0, total_lines + from_)
+            else:
+                # Convert to 0-indexed
+                start_line = max(0, from_ - 1)
 
-                # Process until parameter if provided
-                if until is not None:
-                    # Handle negative indices
-                    if until < 0:
-                        end_line = max(start_line + 1, total_lines + until + 1)
-                    else:
-                        # Convert to 0-indexed + 1 (to include the end line)
-                        end_line = min(total_lines, until)
-                elif from_ is not None and until is None:
-                    # If only from_ is specified, read from that line to a reasonable number of lines after
-                    # (unless limit is -1, in which case read to the end)
-                    if not read_entire_file:
-                        end_line = min(start_line + 100, total_lines)
+        # Process until parameter if provided
+        if until is not None:
+            # Handle negative indices
+            if until < 0:
+                end_line = max(start_line + 1, total_lines + until + 1)
+            else:
+                # Convert to 0-indexed + 1 (to include the end line)
+                end_line = min(total_lines, until)
+        elif from_ is not None and until is None:
+            # If only from_ is specified, read from that line to a reasonable number of lines after
+            # (unless limit is -1, in which case read to the end)
+            if not read_entire_file:
+                end_line = min(start_line + 100, total_lines)
 
-                # If only until is specified, show a reasonable number of lines before it
-                if until is not None and from_ is None:
-                    start_line = max(0, end_line - 100)
+        # If only until is specified, show a reasonable number of lines before it
+        if until is not None and from_ is None:
+            start_line = max(0, end_line - 100)
 
-            except ValueError as e:
-                error_msg = f"Invalid line numbers: from={from_}, until={until} - {str(e)}"
-                logger.error(error_msg)
-                return FileContent.error(f"Error: {error_msg}")
+        # Validate range boundaries
+        start_line = max(0, min(start_line, total_lines - 1))
+        end_line = max(start_line + 1, min(end_line, total_lines))
 
-            # Validate range boundaries
-            start_line = max(0, min(start_line, total_lines - 1))
-            end_line = max(start_line + 1, min(end_line, total_lines))
+        # Apply line limit unless reading entire file (limit=-1)
+        if not read_entire_file and limit > 0 and (end_line - start_line) > limit:
+            end_line = start_line + limit
 
-            # Apply line limit unless reading entire file (limit=-1)
-            if not read_entire_file and limit > 0 and (end_line - start_line) > limit:
-                end_line = start_line + limit
+        # Get the selected lines
+        selected_lines = lines[start_line:end_line]
 
-            # Get the selected lines
-            selected_lines = lines[start_line:end_line]
-            
-            # Determine truncation status and counts
-            is_truncated_start = start_line > 0
-            is_truncated_end = end_line < total_lines
-            lines_before = start_line
-            lines_after = total_lines - end_line
+        # Create the FileContent object
+        file_content = FileContent(
+            content=content,
+            lines=selected_lines,
+            line_count=total_lines,
+            displayed_range=(start_line, end_line)
+        )
 
-            # Create the FileContent object
-            file_content = FileContent(
-                content=content,
-                lines=selected_lines,
-                line_count=total_lines,
-                displayed_range=(start_line, end_line),
-                success=True,
-                is_truncated_start=is_truncated_start,
-                is_truncated_end=is_truncated_end,
-                lines_before=lines_before,
-                lines_after=lines_after
-            )
+        logger.info(
+            f"Successfully read file: {path} (showing {len(selected_lines)} of {total_lines} lines)"
+        )
+        return file_content
 
-            logger.info(
-                f"Successfully read file: {path} (showing {len(selected_lines)} of {total_lines} lines)"
-            )
-            return file_content
-
-    except UnicodeDecodeError:
-        error_msg = f"File is not text or has unknown encoding: {path}"
-        logger.error(error_msg)
-        return FileContent.error(f"Error: {error_msg}")
-    except PermissionError:
-        error_msg = f"Permission denied reading file: {path}"
-        logger.error(error_msg)
-        return FileContent.error(f"Error: {error_msg}")
-    except Exception as e:
-        error_msg = f"Error reading file {path}: {str(e)}"
-        logger.error(error_msg)
-        return FileContent.error(f"Error: {error_msg}")
 
 
 
