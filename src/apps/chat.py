@@ -86,14 +86,19 @@ def print_message(message: Message) -> None:
     # Determine style based on message role
     if message.role is None:  # User message
         border_style = "blue"
-        # For user messages, use simpler formatting
+        # For user messages, use simpler formatting with proper text wrapping
         content = message.display_text()
+        # Get console width and calculate appropriate panel width to ensure text wrapping
+        console_width = console.width if console.width else 80
+        max_width = console_width - 4  # Account for panel borders and padding
         console.print(Panel(
             renderable=content,
             title=f"[dim]({timestamp})[/dim]",
             border_style=border_style,
             padding=(0, 1),
+            width=max_width,
         ))
+
         console.print("")
     else:  # Agent message
         # For agent messages (Neo), display without a panel border
@@ -101,11 +106,16 @@ def print_message(message: Message) -> None:
         # Print Neo's messages without a panel
         structured_output = message.structured_output()
         if structured_output:
+            # Calculate appropriate panel width for text wrapping
+            console_width = console.width if console.width else 80
+            max_width = console_width - 4  # Account for panel borders and padding
             console.print(Panel(
                 renderable=Markdown(structured_output.display_text()),
                 border_style="green",
                 padding=(0, 1),
+                width=max_width,
             ))
+
         else:
             console.print(Markdown(message.display_text()))
 
@@ -118,6 +128,7 @@ class MessageQueue:
 
     def __init__(self) -> None:
         self._stop_worker = threading.Event()
+        self._stopping_status = threading.Event()  # Flag to indicate stopping status
         self._message_queue: queue.Queue[Item] = queue.Queue()
         self._thread = threading.Thread(
             target=self._process, daemon=True, name="MessageWorker"
@@ -147,14 +158,26 @@ class MessageQueue:
                 else message.message
             )
 
-            with console.status("[bold green]Processing..."):
+            status = "[bold green]Processing..."
+            with console.status(status) as status_display:
                 # Process through the service
                 for message in Service.message(
                     msg=message.message, session_id=message.session_id
                 ):
+                    # Check if we need to update status to show stopping
+                    if self._stopping_status.is_set():
+                        status_display.update("[bold yellow]Stopping...")
+                        self._stopping_status.clear()  # Reset after updating display
+                        
                     print_message(message)
                     if self._stop_worker.is_set():
                         break
+
+            # Reset flags after interruption if needed
+            if self._stop_worker.is_set():
+                logger.info("Resetting worker stop flag after interruption")
+                self._stop_worker.clear()
+                self._stopping_status.clear()  # Also reset stopping status
 
         logger.info("Message worker thread stopped")
 
@@ -164,16 +187,45 @@ class MessageQueue:
         msg = self.Item(session_id=session_id, message=message)
         self._message_queue.put(msg)
 
-    def stop(self) -> None:
-        """Stop the message worker thread if running."""
-        if self._thread and self._thread.is_alive():
-            logger.info("Stopping message worker thread...")
-            self._stop_worker.set()
-            self._thread.join(timeout=2.0)
-            if self._thread.is_alive():
-                logger.warning("Message worker thread did not stop gracefully")
-            else:
-                logger.info("Message worker thread stopped successfully")
+        
+    def stop(self, block: bool = True) -> None:
+        """
+        Stop message processing and optionally block until completion.
+        
+        Args:
+            block: If True, wait for current processing to complete.
+                   If False, just set the flag and return immediately.
+        """
+        # Clear all messages currently in the queue
+        while not self._message_queue.empty():
+            try:
+                self._message_queue.get_nowait()
+                self._message_queue.task_done()
+            except queue.Empty:
+                break
+                
+        # Set the stop flag to interrupt current message processing
+        self._stop_worker.set()
+        # Set stopping status flag to update display
+        self._stopping_status.set()
+        
+        # If we're shutting down completely (not just interrupting)
+        if not block or not self._thread or not self._thread.is_alive():
+            return
+            
+        # Block until processing stops or timeout occurs
+        logger.info("Waiting for current processing to complete...")
+        timeout_seconds = 2.0
+        wait_start = time.time()
+        
+        # Wait until the flag is cleared (indicating processing is done) or timeout
+        while self._stop_worker.is_set() and time.time() - wait_start < timeout_seconds:
+            time.sleep(0.1)
+            
+        if self._stop_worker.is_set():
+            logger.warning("Processing did not complete within %.1f seconds", timeout_seconds)
+        else:
+            logger.info("Processing interrupted successfully")
 
 message_queue = MessageQueue()
 
@@ -216,6 +268,8 @@ def run_processing_loop() -> None:
 def handle_keyboard_interrupt() -> None:
     """
     Handle system signals for immediate termination.
+    On first Ctrl+C: Clear message queue and stop current processing
+    On second Ctrl+C (within 1 second): Exit the application
     """
     global interrupt_counter, last_interrupt_time
     current_time = time.time()
@@ -228,7 +282,10 @@ def handle_keyboard_interrupt() -> None:
     if interrupt_counter >= 2:
         raise TerminateChat("[bold red]Exiting due to repeated Ctrl+C[/bold red]")
     else:
-        console.print("[yellow]Press Ctrl+C again quickly or Ctrl+D to exit.[/yellow]")
+        # Stop processing on first Ctrl+C but don't block
+        message_queue.stop(block=False)
+        console.print("[bold yellow]Message processing interrupted.[/bold yellow]")
+        console.print("[yellow]You can send a new message or press Ctrl+C again quickly to exit.[/yellow]")
 
 
 
