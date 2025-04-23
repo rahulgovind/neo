@@ -5,10 +5,14 @@ Handles the conversation state, including message storage, serialization, and ch
 
 from dataclasses import dataclass, field, replace
 import json
+import logging
 import os
 from typing import List, Optional
 
 from src.neo.core.messages import Message
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Configuration constants for message summarization
 MAX_TURNS = 100           # Number of turns before triggering summarization

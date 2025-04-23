@@ -9,17 +9,27 @@ This module provides the WriteFileCommand class for creating or overwriting file
 import os
 import logging
 import textwrap
+import argparse
+import shlex
+from dataclasses import dataclass
 from typing import Dict, Any, Optional, Tuple
 
 from src.neo.exceptions import FatalError
 
-from src.neo.shell.command import Command, CommandTemplate, CommandParameter
+from src.neo.commands.base import Command
 from src.neo.core.messages import CommandResult
 from src.neo.session import Session
 from src.utils.files import overwrite
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class WriteFileArgs:
+    """Structured arguments for write_file command."""
+    path: str
+    content: str
 
 
 class WriteFileCommand(Command):
@@ -33,77 +43,90 @@ class WriteFileCommand(Command):
     - Uses the workspace from the Session
     """
 
-    def template(self) -> CommandTemplate:
-        """
-        Returns the command template with parameter definitions and documentation.
-        """
-        return CommandTemplate(
-            name="write_file",
-            requires_data=True,
-            description=textwrap.dedent(
-                """
-                Create a new file or overwrite an existing file.
-                
-                The write_file command creates or overwrites a file specified by PATH using STDIN as content.
-                
-                The PATH argument can be a relative path from the current workspace or an absolute path.
-                Parent directories are created automatically if they don't exist.
+    @property
+    def name(self) -> str:
+        """Return the command name."""
+        return "write_file"
+        
+    def description(self) -> str:
+        """Returns a short description of the command."""
+        return "Create a new file or overwrite an existing file"
+        
+    def help(self) -> str:
+        """Returns detailed help for the command."""
+        return textwrap.dedent(
             """
-            ),
-            examples=textwrap.dedent(
-                """
-                ▶write_file path/to/new_file.py｜def hello_world():
+            Use the `write_file` command to create a new file or overwrite an existing file.
+            
+            Usage: ▶write_file PATH｜CONTENT■
+            
+            - PATH (required): Path to the file to create or overwrite.
+            - CONTENT (required): Content to write to the file
+            
+            Create a new file or overwrite an existing file.
+            
+            The write_file command creates or overwrites a file specified by PATH using data content.
+            
+            Example:
+            ▶write_file path/to/new_file.py｜def hello_world():
                 print("Hello, World!")■
-                ✅SUCCESS (+4,-0)■
-                
-                ▶write_file config.json｜{
-                    "debug": true,
-                    "port": 8080
-                }■
-                ✅SUCCESS (+4,-0)■
+            ✅SUCCESS (+4,-0)■
+            
+            ▶read_file path/to/new_file.py■
+            ✅def hello_world():
+                print("Hello, World!")■
             """
-            ),
-            parameters=[
-                CommandParameter(
-                    name="path",
-                    description="Path to the file to create or overwrite.",
-                    required=True,
-                    is_positional=True,
-                ),
-            ],
         )
 
-    def process(
-        self, session, args: Dict[str, Any], data: Optional[str] = None
+    def _parse_statement(self, statement: str, data: Optional[str] = None) -> WriteFileArgs:
+        """Parse the command statement using argparse."""
+        # Validate that data parameter is present
+        if not data:
+            raise ValueError("The write_file command requires data input (content after |)")
+            
+        # Store the content in the parsed arguments
+            
+        # Create parser for write_file command
+        parser = argparse.ArgumentParser(prog="write_file", exit_on_error=False)
+        
+        # Add arguments
+        parser.add_argument("path", help="Path to the file to create or overwrite")
+        
+        # Split statement into parts using shlex for proper handling of quoted arguments
+        args = shlex.split(statement)
+        
+        # Parse arguments
+        parsed_args = parser.parse_args(args)
+        return WriteFileArgs(
+            path=parsed_args.path,
+            content=data
+        )
+            
+    def validate(self, session, statement: str, data: Optional[str] = None) -> None:
+        """Validate the write_file command statement."""
+        # The _parse_statement method will raise appropriate exceptions
+        # if validation fails, so we just need to call it here
+        self._parse_statement(statement, data)
+        
+    def execute(
+        self, session, statement: str, data: Optional[str] = None
     ) -> CommandResult:
-        """
-        Process the command with the parsed arguments and optional data.
-
-        Args:
-            session: Application session
-            args: Dictionary of parameter names to their values
-            data: Optional data string containing the content to write to the file
-
-        Returns:
-            CommandResult with success status and summary of the operation
-        """
+        """Execute the write_file command."""
+        # Parse the command statement
+        args = self._parse_statement(statement, data)
+        
         # Get the workspace from the session
         workspace = session.workspace
+        if not workspace:
+            return CommandResult(success=False, content="Workspace path is not set. Please specify a workspace directory.")
 
-        path = args.get("path")
-        if not path:
-            logger.error("Path not provided to write_file command")
-            raise FatalError("Path argument is required")
+        path = args.path
 
-        if not data:
-            logger.error("No content provided to write_file command")
-            raise FatalError("Content must be provided as data (after |)")
-
-        # Get the no_lint flag (defaults to False)
-        no_lint = args.get("no_lint", False)
-
-        # Pass the no_lint flag to the overwrite function
-        success, lines_added, lines_deleted = overwrite(workspace, path, data, no_lint)
+        # Get the content from the parsed args
+        content = args.content
+        
+        # Call the overwrite function (no-lint is now always False)
+        success, lines_added, lines_deleted = overwrite(workspace, path, content, False)
 
         if not success:
             return CommandResult(success=False, content=f"Failed to write to {path}")

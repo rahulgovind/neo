@@ -161,11 +161,9 @@ def test_write_file_command(test_case):
         # Format the command parameters with the actual file path
         formatted_params = test_case.command_parameters.format(file_path=file_path)
         
-        # Create the command with the file content
-        command_input = f"write_file {formatted_params}{STDIN_SEPARATOR}{test_case.file_content}"
-        
-        # Execute the command
-        result = ctx.shell.parse_and_execute(command_input)
+        # Execute the command directly
+        logger.debug(f"Executing write_file command with parameters: {formatted_params}")
+        result = ctx.shell.execute("write_file", formatted_params, test_case.file_content)
         
         # Verify the command executed successfully
         assert result.success, f"Command should execute successfully for test case {test_case.name}. Error: {result.content}"
@@ -229,15 +227,9 @@ def test_write_file_errors(test_case):
         # Format the command parameters with the actual file path
         formatted_params = test_case.command_parameters.format(file_path=file_path)
         
-        # Create the command
-        if test_case.file_content is not None:
-            command_input = f"write_file {formatted_params}{STDIN_SEPARATOR}{test_case.file_content}"
-        else:
-            # For missing content test
-            command_input = f"write_file {formatted_params}"
-        
-        # Handle both error cases with try-except
-        result = ctx.shell.parse_and_execute(command_input)
+        # Execute the command directly
+        logger.debug(f"Executing write_file command with parameters: {formatted_params}")
+        result = ctx.shell.execute("write_file", formatted_params, test_case.file_content)
         assert (
             not result.success
         ), f"Command should fail for error test case {test_case.name}"

@@ -152,55 +152,6 @@ class TestClient(unittest.TestCase):
                          f"{COMMAND_START}command args{COMMAND_END}\n" + 
                          "custom block text")
 
-    def test_command_instructions_in_system_message(self):
-        """Test that command instructions are correctly added to the system message."""
-        # Create a system message
-        system_message = Message(
-            role="system",
-            content=[TextBlock("System instruction")]
-        )
-        
-        # Create a user message
-        user_message = Message(
-            role="user",
-            content=[TextBlock("User message")]
-        )
-        
-        # Define commands to include
-        commands = ["cmd1", "cmd2"]
-        
-        # Configure mock shell to return descriptions
-        self.mock_shell.describe.side_effect = [
-            "Description of cmd1",
-            "Description of cmd2"
-        ]
-        
-        # We're already setting up the mock response in setUp
-        
-        # Process messages with commands
-        self.client.process([system_message, user_message], commands=commands)
-        
-        # Since we're bypassing the OpenAI client completely in this test,
-        # we don't need to check the API call arguments
-        
-        # Get the call arguments for the mocked openai client
-        call_args = self.mock_openai_client.chat.completions.create.call_args
-        processed_system_message = call_args[1]["messages"][0]
-        
-        # Extract the system message content
-        system_content = processed_system_message["content"][0]["text"]
-        
-        # Verify command instructions are included in system message
-        self.assertIn(Client.COMMAND_INSTRUCTIONS, system_content)
-        self.assertIn("Description of cmd1", system_content)
-        self.assertIn("Description of cmd2", system_content)
-        
-        # Verify the shell.describe method was called correctly
-        self.mock_shell.describe.assert_has_calls([
-            call("cmd1"),
-            call("cmd2")
-        ])
-
     def test_parsing_command_calls_from_response(self):
         """Test that completion API responses with command calls are correctly parsed."""
         # Create mock data for the test

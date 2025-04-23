@@ -204,7 +204,7 @@ error_test_cases = [
             '''),
         changes=None,  # No changes content
         command_parameters="{file_path}",
-        expected_error="requires data",
+        expected_error="requires diff content",
     ),
     # Test file not found
     UpdateFileFailureTestCase(
@@ -264,11 +264,9 @@ def test_update_file_command(test_case):
         # Format the command parameters
         formatted_params = file_path
         
-        # Create the command with the changes content
-        command_input = f"update_file {formatted_params}{STDIN_SEPARATOR}{test_case.changes}"
-        
-        # Execute the command
-        result = ctx.shell.parse_and_execute(command_input)
+        # Execute the command directly
+        logger.debug(f"Executing update_file command for file: {file_path}")
+        result = ctx.shell.execute("update_file", file_path, test_case.changes)
         
         # Verify the command executed successfully
         assert result.success, f"Command should execute successfully for test case {test_case.name}. Error: {result.content}"
@@ -339,15 +337,9 @@ def test_update_file_errors(test_case):
         # Format the command parameters with the actual file path
         formatted_params = test_case.command_parameters.format(file_path=file_path)
         
-        # Create the command
-        if test_case.changes is not None:
-            command_input = f"update_file {formatted_params}{STDIN_SEPARATOR}{test_case.changes}"
-        else:
-            # For missing diff content test
-            command_input = f"update_file {formatted_params}"
-        
-        # Execute the command
-        result = ctx.shell.parse_and_execute(command_input)
+        # Create direct execute command
+        logger.debug(f"Executing update_file command with parameters: {formatted_params}")
+        result = ctx.shell.execute("update_file", formatted_params, test_case.changes)
         
         # Verify the command failed as expected
         assert not result.success, f"Command should fail for error test case {test_case.name}"

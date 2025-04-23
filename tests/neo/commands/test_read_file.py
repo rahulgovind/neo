@@ -12,6 +12,7 @@ import re
 import logging
 import pytest
 import tempfile
+import argparse
 from dataclasses import dataclass
 from typing import Optional, List
 
@@ -217,21 +218,21 @@ error_test_cases = [
         name="invalid_from_parameter",
         file_content=PYTHON_TEST_CONTENT,
         command_parameters="{file_path} --from invalid",
-        expected_error="invalid value for --from",
+        expected_error="argument --from: invalid int value",
     ),
     # Test invalid until parameter
     ReadFileFailureTestCase(
         name="invalid_until_parameter",
         file_content=PYTHON_TEST_CONTENT,
         command_parameters="{file_path} --until invalid",
-        expected_error="invalid value for --until",
+        expected_error="argument --until: invalid int value",
     ),
     # Test invalid limit parameter
     ReadFileFailureTestCase(
         name="invalid_limit_parameter",
         file_content=PYTHON_TEST_CONTENT,
         command_parameters="{file_path} --limit invalid",
-        expected_error="invalid value for --limit",
+        expected_error="argument --limit: invalid int value",
     ),
 ]
 
@@ -250,11 +251,13 @@ def test_read_file_command(test_case):
 
         # Create the test file with appropriate content if provided
         if test_case.file_content is not None:
-            # Create any required subdirectories for this test
+            # Determine the file path based on the test case name
             if "subdir" in test_case.name:
                 subdir_path = os.path.join(temp_dir, "subdir")
                 os.makedirs(subdir_path, exist_ok=True)
                 file_path = os.path.join(subdir_path, f"{test_case.name}.txt")
+            else:
+                file_path = os.path.join(temp_dir, f"{test_case.name}.txt")
 
             # Write the content to the file
             with open(file_path, "w", encoding="utf-8") as f:
@@ -263,11 +266,9 @@ def test_read_file_command(test_case):
         # Format the command parameters with the actual file path
         formatted_params = test_case.command_parameters.format(file_path=file_path)
 
-        # Create and execute the command
-        command_input = f"read_file {formatted_params}"
-
-        # Execute the command
-        result = ctx.shell.parse_and_execute(command_input)
+        # Execute the command directly
+        logger.debug(f"Executing read_file command with parameters: {formatted_params}")
+        result = ctx.shell.execute("read_file", formatted_params, None)
 
         # Verify the command executed successfully
         assert (
@@ -329,11 +330,9 @@ def test_read_file_errors(test_case):
         # Format the command parameters with the actual file path
         formatted_params = test_case.command_parameters.format(file_path=file_path)
 
-        # Create and execute the command
-        command_input = f"read_file {formatted_params}"
-
-        # Execute the command for error cases
-        result = ctx.shell.parse_and_execute(command_input)
+        # Execute the command directly for all test cases
+        logger.debug(f"Executing read_file command with parameters: {formatted_params}")
+        result = ctx.shell.execute("read_file", formatted_params, None)
 
         # Verify the command failed as expected
         assert (

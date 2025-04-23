@@ -7,15 +7,29 @@ This module provides the ReadFileCommand class for reading file contents.
 import os
 import logging
 import textwrap
+import argparse
+import shlex
+from dataclasses import dataclass
 from typing import Dict, Any, Optional
 
 from src.neo.core.messages import CommandResult
-from src.neo.shell.command import Command, CommandTemplate, CommandParameter
+from src.neo.commands.base import Command
 from src.neo.exceptions import FatalError
 from src.utils.files import read
 from src import NEO_HOME
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ReadFileArgs:
+    """Structured arguments for read_file command."""
+    path: str
+    no_line_numbers: bool = False
+    limit: int = 200
+    from_: Optional[int] = None
+    until_: Optional[int] = None
+
 
 
 class ReadFileCommand(Command):
@@ -25,154 +39,102 @@ class ReadFileCommand(Command):
     Features:
     - Adds line numbers to make referencing specific lines easier
     - Handles common file reading errors gracefully
-    - Uses the workspace from the Context
+    - Uses the workspace from the Session
     - Supports reading specific line ranges with flexible syntax
     - Limits output to a reasonable number of lines by default
     - Shows indicators when content is truncated
     """
 
-    def template(self) -> CommandTemplate:
-        """
-        Returns the command template with parameter definitions and documentation.
-        """
-        return CommandTemplate(
-            name="read_file",
-            description=textwrap.dedent(
-                """
-                Read and display file contents.
+    @property
+    def name(self) -> str:
+        """Return the command name."""
+        return "read_file"
+        
+    def _parse_statement(self, statement: str, data: Optional[str] = None) -> ReadFileArgs:
+        """Parse the command statement using argparse."""
+        # Validate that data parameter is not set
+        if data:
+            raise ValueError("The read_file command does not accept data input")
+            
+        # Create parser for read_file command
+        parser = argparse.ArgumentParser(prog="read_file", exit_on_error=False)
+        
+        # Add arguments
+        parser.add_argument("path", help="Path to the file to read")
+        parser.add_argument("--no-line-numbers", action="store_true", help="Exclude line numbers from output")
+        parser.add_argument("--limit", type=int, default=200, help="Maximum number of lines to display")
+        parser.add_argument("--from", dest="from_", type=int, help="First line to read (1-indexed)")
+        parser.add_argument("--until", dest="until_", type=int, help="Last line to read (inclusive)")
+        
+        # Split statement into parts using shlex for proper handling of quoted arguments
+        args = shlex.split(statement)
+        
+        # Parse arguments
+        parsed_args = parser.parse_args(args)
+        return ReadFileArgs(
+            path=parsed_args.path,
+            no_line_numbers=parsed_args.no_line_numbers,
+            limit=parsed_args.limit,
+            from_=parsed_args.from_,
+            until_=parsed_args.until_
+        )
+            
+    def validate(self, session, statement: str, data: Optional[str] = None) -> None:
+        """Validate the read_file command statement."""
+        # The _parse_statement method will raise appropriate exceptions
+        # if validation fails, so we just need to call it here
+        self._parse_statement(statement, data)
+    
+    def description(self) -> str:
+        """Returns a short description of the command."""
+        return "Read and display file contents."
+    
+    def help(self) -> str:
+        """Returns a detailed description of the command with examples and parameter lists."""
+        return textwrap.dedent(
+            """
+            Use the `read_file` command to read and display file contents.
+            
+            Usage: ▶read_file PATH [--from <from>] [--until <until>] [--limit <limit>]■
+            
+            - PATH: Path to the file to read
+            - from: First line to read (1-indexed). Negative values count from the end.
+            - until: Last line to read (inclusive). Negative values count from the end.
+            - limit: Maximum number of lines to display. Default: 200
+            
+            Examples:
+            
+            ▶read_file path/to/file.py■
+            ✅1:import os
+            2:import sys
+            3:
+            4:print("Hello, World!")
+            5:x = 2■
+            
+            ▶read_file --from 2 --until 4 path/to/file.py■
+            ✅2:import sys
+            3:
+            4:print("Hello, World!")■
+            
+            ▶read_file --from -2 --until -1 path/to/file.py■
+            ✅4:print("Hello, World!")
+            5:x = 2■
+            """
+        )
 
-                The read_file command outputs the contents of a file specified by PATH.
 
-                PATH can be a relative or absolute path to a file.
-                By default, line numbers are included in the output.
-                Use --no-line-numbers to display the content without line numbers.
-
-                By default, at most 200 lines will be returned.
-                Use --from and --until to specify particular sections of the file.
-                Use --limit to change the maximum number of lines shown.
-                Negative indices count from the end of the file.
-                Use --limit -1 to read the entire file without line limits.
-                """
-            ),
-            examples=textwrap.dedent(
-                """
-                ▶read_file path/to/file.py■
-                ✅1:import os
-                2:import sys
-                3:
-                4:print("Hello, World!")■
-
-                ▶read_file --no-line-numbers path/to/file.py■
-                ✅import os
-                import sys
-
-                print("Hello, World!")■
-
-                ▶read_file --from 323 path/to/large_file.py■
-                ✅323:def process_data():
-                324:    # Process data function
-                ...
-                423:    return result
-                ... 157 additional lines■
-
-                ▶read_file --until 50 path/to/file.py■
-                ✅... 20 additional lines
-                30:import os
-                ...
-                50:# Show lines before line 50■
-
-                ▶read_file --from 100 --until 200 config.json■
-                ✅100:{
-                101:    # Lines 100-200
-                102:}■
-
-                ▶read_file --from -100 path/to/file.py■
-                ✅900:# Last 100 lines of the file
-                ...
-                999:# End of file■
-
-                ▶read_file --limit -1 path/to/file.py■
-                ✅1:# Entire file from beginning to end
-                2:# Second line
-                ...
-                999:# Including the last line■
-
-                ▶read_file nonexistent.py■
-                ❌File not found: nonexistent.py■
-                """
-            ),
-            requires_data=False,
-            parameters=[
-                CommandParameter(
-                    name="path",
-                    description="Path to the file to read.",
-                    required=True,
-                    is_positional=True,
-                ),
-                CommandParameter(
-                    name="no_line_numbers",
-                    description="Exclude line numbers from the output.",
-                    required=False,
-                    default=False,
-                    is_flag=True,
-                    long_flag="no-line-numbers",
-                ),
-                CommandParameter(
-                    name="from_",
-                    description=(
-                        "Start reading from this line number. "
-                        "Can be a positive number (1-indexed) "
-                        "or negative (count from end)."
-                    ),
-                    required=False,
-                    is_flag=True,
-                    long_flag="from",
-                ),
-                CommandParameter(
-                    name="until_",
-                    description=(
-                        "Read until this line number (inclusive). "
-                        "Can be a positive number or negative (count from end)."
-                    ),
-                    required=False,
-                    is_flag=True,
-                    long_flag="until",
-                ),
-                CommandParameter(
-                    name="limit",
-                    description=(
-                        "Maximum number of lines to show. "
-                        "Default: 200. Use -1 for unlimited."
-                    ),
-                    required=False,
-                    is_flag=True,
-                    long_flag="limit",
-                    default=200,
-                ),
-            ],
-        )        
-
-    def process(
-        self, ctx, args: Dict[str, Any], data: Optional[str] = None
+    def execute(
+        self, session, statement: str, data: Optional[str] = None
     ) -> CommandResult:
-        """
-        Process the command with the parsed arguments and optional data.
+        """Execute the read_file command."""
+        # Parse the command statement
+        args = self._parse_statement(statement, data)
+        path = args.path
 
-        Args:
-            ctx: Application context
-            args: Dictionary of parameter names to their values
-            data: Optional data string (not used in this command)
-
-        Returns:
-            CommandResult with file contents and summary
-        """
-        # Get the workspace from the context
-        workspace = ctx.workspace
-
-        path = args.get("path")
-        if not path:
-            logger.error("Path not provided to read_file command")
-            raise FatalError("Path argument is required")
+        # Determine the workspace
+        workspace = session.workspace
+        if not workspace:
+            return CommandResult(success=False, content="Workspace path is not set. Please specify a workspace directory.")
 
         # Check if the path is explicitly targeting the NEO_HOME directory
         if path.startswith(NEO_HOME):
@@ -188,31 +150,11 @@ class ReadFileCommand(Command):
                 raise FatalError(f"Path must be within the workspace: {workspace}")
             full_path = path
 
-        # Determine whether to include line numbers
-        # (default is True, unless --no-line-numbers is specified)
-        include_line_numbers = not args.get("no_line_numbers", False)
-
-        # Get range parameters if specified
-        from_line = args.get("from_")
-        if from_line is not None:
-            try:
-                from_line = int(from_line)
-            except ValueError:
-                return CommandResult(success=False, content=f"Invalid value for --from. Found {from_line}. Expected a number.")
-
-        until_line = args.get("until_")
-        if until_line is not None:
-            try:
-                until_line = int(until_line)
-            except ValueError:
-                return CommandResult(success=False, content=f"Invalid value for --until. Found {until_line}. Expected a number.")
-
-        limit = args.get("limit", 200)
-        if limit is not None:
-            try:
-                limit = int(limit)
-            except ValueError:
-                return CommandResult(success=False, content=f"Invalid value for --limit. Found {limit}. Expected a number.")
+        # Get the parameters from the parsed args
+        include_line_numbers = not args.no_line_numbers
+        from_line = args.from_
+        until_line = args.until_
+        limit = args.limit
 
         try:
             # Read the file content - now returns a FileContent object or raises an exception
@@ -222,8 +164,7 @@ class ReadFileCommand(Command):
                 until=until_line,
                 limit=limit,
             )
-
-
+            
             # Format the output based on whether line numbers are requested
             formatted_content = file_content.format(include_line_numbers=include_line_numbers)
 

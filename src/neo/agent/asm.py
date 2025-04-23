@@ -14,7 +14,7 @@ from src.neo.core.messages import Message
 from src.neo.agent.state import AgentState
 from src.neo.shell import Shell
 from src.neo.client import Client
-from src.neo.shell.command import Command
+from src.neo.commands.base import Command
 from src.neo.core.constants import COMMAND_START, STDIN_SEPARATOR
 
 # Configure logging

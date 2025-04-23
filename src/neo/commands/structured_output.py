@@ -16,7 +16,7 @@ import textwrap
 import jsonschema
 from typing import Dict, Any, Optional, List
 
-from src.neo.shell.command import Command, CommandTemplate, CommandParameter
+from src.neo.commands.base import Command, CommandTemplate, CommandParameter
 from src.neo.session import Session
 from src.neo.core.messages import CommandResult, StructuredOutput
 
@@ -28,64 +28,35 @@ class StructuredOutputCommand(Command):
     """
     Command used to output structured data.
     """
+    
+    @property
+    def name(self) -> str:
+        """Return the command name."""
+        return "output"
+    
+    def description(self) -> str:
+        """Returns a short description of the command."""
+        return "Command used to output structured data."
+    
+    def help(self) -> str:
+        """Returns detailed help for the command."""
+        return textwrap.dedent(
+            """\
+            Use the `output` command to output structured data when requested.
 
-    def template(self) -> CommandTemplate:
-        """
-        Returns the command template with parameter definitions and documentation.
-        """
-        return CommandTemplate(
-            name="output",
-            description=textwrap.dedent(
-                """Command used to output structured data."""
-            ),
-            examples=textwrap.dedent(
-                """
-                Command call when structured output was requested for 1+1 as int type
-                ▶output｜2■
-                ✅Successfully processed output.■
-                
-                Command call when user requested python code to print abc as raw type
-                ▶output｜print("abc")■
-                ✅Successfully processed output.■
-                
-                Command call when user requested to return a result with schema
-                {
-                    "type": "object", 
-                    "properties": {
-                        "x": {"type": "integer"}, 
-                        "y": {"type": "string"}, 
-                        "z": {"type": "array", "items": {"type": "number"}}
-                    }
-                }
-                ▶output ｜{"x": 1, "y": "test", "z": [1.0, 2.0]}■
-                ✅Successfully processed output.■
-
-                Output to the "checkpoint" destination
-                ▶output -d checkpoint ｜{"x": 1, "y": "test", "z": [1.0, 2.0]}■
-                ✅Successfully processed output.■
-                """
-            ),
-            # Empty list of parameters as this command is not meant to be called directly
-            parameters=[
-                CommandParameter(
-                    name="destination",
-                    description="Output destination",
-                    required=False,
-                    default="default",
-                    is_flag=True,
-                    short_flag="d",
-                    long_flag="destination",
-                )
-            ],
-            requires_data=True,
+            Usage: ▶output [--destination <destination>]｜<data>■
+            """
         )
-
-    def process(
-        self, session: Session, args: Dict[str, Any], data: Optional[str] = None
-    ) -> CommandResult:
+        
+    def validate(self, session, statement: str, data: Optional[str] = None) -> None:
+        """Validate the output command."""
+        if not data:
+            raise ValueError("Output command requires data to process after the pipe symbol.")
+        
+    def execute(self, session, statement: str, data: Optional[str] = None) -> CommandResult:
         # Command is never expected to be directly called on the shell.
         return StructuredOutput(
             content="Successfully processed output.",
-            destination=args.get("destination", "default"),
+            destination="default",
             value=data
         )
