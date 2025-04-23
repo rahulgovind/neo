@@ -54,12 +54,12 @@ class UpdateFileCommand(Command):
             """\
             Use the `update_file` command to update partial contents of a file.
 
-            USAGE: ▶update_file PATH|DIFF_CONTENT■
+            USAGE: ▶update_file PATH|DIFF■
 
             - PATH: Path to the file to update (required)
-            - DIFF_CONTENT: Diff structure to apply (required)
+            - DIFF: Diff structure to apply (required)
 
-            DIFF_CONTENT format:
+            DIFF format:
             [@DELETE <Optional comment>
             Lines to delete]
             [@UPDATE <Optional comment>
