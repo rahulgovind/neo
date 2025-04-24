@@ -8,6 +8,7 @@ import os
 from typing import Optional, TYPE_CHECKING
 from src.neo.exceptions import FatalError
 from src import NEO_HOME
+from src.neo.utils.clock import Clock, RealTimeClock
 
 # For type checking only - not imported at runtime
 if TYPE_CHECKING:
@@ -32,6 +33,7 @@ class Session:
     _shell: Optional["Shell"] = None
     _agent: Optional["Agent"] = None
     _client: Optional["Client"] = None
+    clock: Clock = None
 
     def select_model(self, size: str = "LG") -> "Model":
         """
@@ -117,6 +119,7 @@ class SessionBuilder:
         self._workspace = None
         self._model_name = None
         self._session = None
+        self._clock = None
 
     def _copy(self) -> "SessionBuilder":
         """Create a copy of this builder with the same settings."""
@@ -125,6 +128,7 @@ class SessionBuilder:
         new_builder._session_name = self._session_name
         new_builder._workspace = self._workspace
         new_builder._model_name = self._model_name
+        new_builder._clock = self._clock
         return new_builder
 
     def session_id(self, session_id: Optional[str]) -> "SessionBuilder":
@@ -150,6 +154,12 @@ class SessionBuilder:
         new_builder = self._copy()
         new_builder._model_name = model_name
         return new_builder
+        
+    def clock(self, clock: Clock) -> "SessionBuilder":
+        """Set the clock implementation to be used."""
+        new_builder = self._copy()
+        new_builder._clock = clock
+        return new_builder
 
     def _generate_default_session_id(self) -> str:
         """Generate a default session ID."""
@@ -174,11 +184,12 @@ class SessionBuilder:
         session_id = self._session_id or self._generate_default_session_id()
         session_name = self._session_name
 
-        # Create the session object
+        # Create the session object with a default RealTimeClock if none provided
         session = Session(
             session_id=session_id,
             session_name=session_name,
             _workspace=self._workspace,
+            clock=self._clock or RealTimeClock(),
         )
 
         # Initialize the shell
