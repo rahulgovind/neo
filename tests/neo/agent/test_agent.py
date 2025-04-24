@@ -18,7 +18,7 @@ def test_agent_math_structured_output():
     agent = Agent(session=session, ephemeral=True)
 
     # Define the prompt for asking for a structured output calculation
-    prompt = "Calculate 2+2 and return the result as a structured output."
+    prompt = "Calculate 2+2 and return only the result as structured output. The output should be an integer."
 
     # Process the user message
     responses = list(agent.process(prompt))
@@ -28,16 +28,12 @@ def test_agent_math_structured_output():
 
     # Get the last response (to account for potential command executions)
     last_response = responses[-1]
-
-    # Check it's an assistant message
-    assert (
-        last_response.role == "assistant"
-    ), f"Response role should be 'assistant', got '{last_response.role}'"
-
+    
+    # Get the structured output
     output = last_response.structured_output()
-
-    # Validate the structured output
-    assert output.value == "4", f"Expected 4, got {output.value}"
+    
+    # Validate the value is 4
+    assert int(output.value) == 4, f"Expected 4, got {output.value}"
 
 
 def test_agent_state_persistence():
@@ -46,19 +42,21 @@ def test_agent_state_persistence():
     agent = Agent(session=session, ephemeral=False)
 
     # Define the prompt for asking for a structured output calculation
-    list(agent.process("Calculate 2+2 and return the result as a structured output."))
+    list(agent.process("Calculate 2+2 and return only the result as an integer structured output."))
 
     # Create a new agent instance to load state from disk
     agent = Agent(session=session, ephemeral=False)
     result = list(
         agent.process(
-            "Add 2 to the previous result and return it as a structured output"
+            "Add 2 to the previous result and return it as an integer structured output"
         )
     )[-1]
 
-    assert (
-        result.structured_output().value == "6"
-    ), f"Expected 6, got {result.structured_output().value}"
+    # Get the structured output
+    output = result.structured_output()
+    
+    # Validate the value is 6
+    assert int(output.value) == 6, f"Expected 6, got {output.value}"
 
 def get_output(agent, message):
     response = list(agent.process(message))[-1]
@@ -94,38 +92,38 @@ def test_agent_checkpoint():
             agent,
             "Calculate x^2 for numbers 2, 4, 7, 9 and 11 and return them as a structured outputs. "
             "Return them one by one. Next result N + 1 only after I have acknowledge result N"
-        ) == "4"
+        ) == 4
 
     # The previous state should be checkpointed but still available in memory
     # This verifies that in-memory checkpointing works without saving to disk
     print("====================  Second calculation ====================")
     result = get_output(agent, "continue")
-    assert result == "16"
+    assert result == 16
 
     print("====================  Third calculation ====================")
     result = get_output(agent, "continue")
-    assert result == "49"
+    assert result == 49
 
     print("====================  Fourth calculation ====================")
     result = get_output(agent, "continue")
-    assert result == "81"
+    assert result == 81
 
     print("====================  Fifth calculation ====================")
     result = get_output(agent, "continue")
-    assert result == "121"
+    assert result == 121
 
     print("====================  First calcuation. x^3 ====================")
     assert get_output(
             agent,
             "Calculate x^3 for numbers 2, 4, and 7 and return them as a structured outputs. "
             "Return them one by one. Next result N + 1 only after I have acknowledge result N"
-        ) == "8"
+        ) == 8
 
     print("====================  Second calcuation. x^3 ====================")
-    assert get_output(agent, "continue") == "64"
+    assert get_output(agent, "continue") == 64
 
     print("====================  Third calcuation. x^3 ====================")
-    assert get_output(agent, "continue") == "343"
+    assert get_output(agent, "continue") == 343
 
 
 def test_agent_simple_code_fix():

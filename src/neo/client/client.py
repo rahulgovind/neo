@@ -81,7 +81,9 @@ class Client:
                 transformed_blocks = []
                 for block in response.content:
                     if isinstance(block, CommandCall):
-                        block.parsed_cmd = self._shell.parse_command_call(block, output_schema)
+                        block.parsed_cmd = self._shell.parse_command_call(
+                            block, output_schema
+                        )
                         transformed_blocks.append(block)
                     else:
                         transformed_blocks.append(block)
@@ -104,6 +106,16 @@ class Client:
                 ),
             ]
 
+    def _get_assistant_prefill(self, messages: List[Message]) -> Optional[str]:
+        """Extract assistant_prefill from the last user message if present."""
+        if (
+            len(messages) > 1
+            and messages[-1].role != "assistant"
+            and hasattr(messages[-1], "assistant_prefill")
+        ):
+            return messages[-1].assistant_prefill
+        return None
+
     def _process(
         self,
         messages: List[Message],
@@ -111,14 +123,14 @@ class Client:
         model: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> Message:
-        messages = self._preprocess_messages(messages, commands)
+        processed_messages = self._preprocess_messages(messages, commands)
         response = self._client.process(
-            messages=messages,
+            messages=processed_messages,
             model=model,
             stop=[SUCCESS_PREFIX, ERROR_PREFIX],
             session_id=session_id,
         )
-        return self._postprocess_response(response)
+        return self._postprocess_response(response, messages)
 
     def _preprocess_messages(
         self, messages: List[Message], commands: List[str]
@@ -155,15 +167,37 @@ class Client:
                         for block in message.content
                     ],
                     metadata=message.metadata,
+                    assistant_prefill=message.assistant_prefill,
+                )
+            )
+
+        assistant_prefill = self._get_assistant_prefill(processed_messages)
+        if assistant_prefill:
+            processed_messages.append(
+                Message(
+                    role="assistant",
+                    content=assistant_prefill,
                 )
             )
 
         return processed_messages
 
-    def _postprocess_response(self, response: Message) -> Message:
+    def _postprocess_response(
+        self, response: Message, messages: List[Message]
+    ) -> Message:
         # Verify command markers are single characters for optimization
         assert len(COMMAND_START) == 1, "COMMAND_START must be a single character"
         assert len(COMMAND_END) == 1, "COMMAND_END must be a single character"
+
+        # Get assistant_prefill from the last user message if present
+        assistant_prefill = self._get_assistant_prefill(messages)
+
+        # If we have assistant_prefill, prepend it to the content
+        if assistant_prefill and response.content:
+            # Prepend to the first content block
+            response.content[0] = TextBlock(
+                text=assistant_prefill + response.content[0].model_text()
+            )
 
         blocks = []
         for block in response.content:

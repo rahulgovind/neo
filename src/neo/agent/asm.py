@@ -32,6 +32,7 @@ class AgentOutput(ABC):
         """Return True if this output is terminal."""
         pass
 
+
 class CommandExecution(AgentOutput):
     def __init__(self, command_call: Message, command_results: Message):
         self.command_call = command_call
@@ -143,23 +144,13 @@ class AgentStateMachine:
             # Add a user message requesting the checkpoint
             logger.info(f"Checkpointing attempt {num_attempts}")
             checkpoint_request_state = state.add_messages(
-                Message("developer", checkpoint_instructions),
-                Message("assistant", f"Generating the latest checkpoint - {COMMAND_START}output -d checkpoint{STDIN_SEPARATOR}")
+                Message(
+                    "developer",
+                    checkpoint_instructions,
+                    assistant_prefill=f"Generating the latest checkpoint - {COMMAND_START}output --type markdown --destination checkpoint{STDIN_SEPARATOR}",
+                )
             )
-            # checkpoint_request_state = state.clear_messages().add_messages(
-            #     Message(
-            #         "developer",
-            #         checkpoint_instructions
-            #         + "\nHere is a history of the conversation so far: ```\n"
-            #         + "\n".join(
-            #             ("system" if message.role == "developer" else message.role) + 
-            #             ": " + message.model_text()
-            #             for message in state.messages
-            #         )
-            #         + "```\n\n" 
-            #         + "Follow the initial instructions to generate a checkpoint and send it over by running output -d checkpoint`"
-            #     )
-            # )
+
             _, checkpoint_response = self.step(checkpoint_request_state, [])
             if (
                 isinstance(checkpoint_response, CommandExecution)
@@ -178,7 +169,9 @@ class AgentStateMachine:
             ),
             Message(
                 role="assistant",
-                content=str(checkpoint_response.command_results.structured_output().value),
+                content=str(
+                    checkpoint_response.command_results.structured_output().value
+                ),
             ),
             Message(
                 role="developer",
