@@ -18,7 +18,7 @@ from src.neo.commands.write_file import WriteFileCommand
 from src.neo.commands.update_file import UpdateFileCommand
 from src.neo.commands.file_text_search import FileTextSearch
 from src.neo.commands.file_path_search import FilePathSearch
-from src.neo.commands.shell import ShellRunCommand, ShellViewCommand, ShellWriteCommand, ShellTerminateCommand
+from src.neo.commands.terminal import ShellRunCommand, ShellViewCommand, ShellWriteCommand, ShellTerminateCommand
 from src.neo.core.constants import COMMAND_END
 from src.neo.session import Session
 import traceback
