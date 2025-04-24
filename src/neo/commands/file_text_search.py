@@ -29,7 +29,7 @@ class FileTextSearchArgs:
     path: str
     file_patterns: Optional[List[str]] = None
     ignore_case: bool = False
-    context: int = 0
+    num_context_lines: int = 0
 
 
 class FileTextSearch(Command):
@@ -59,13 +59,15 @@ class FileTextSearch(Command):
             """
             Use the `file_text_search` command to search for file contents.
             
-            Usage: ▶file_text_search PATTERN PATH [--file-pattern <pattern>] [--ignore-case] [--context <lines>]■
+            Usage: ▶file_text_search PATTERN PATH [--file-pattern <pattern>] [--ignore-case] [--num-context-lines <lines>]■
             
             - PATTERN (required): Regex pattern to look for in files
             - PATH (required): Path to search in, relative to workspace
             - file-pattern: File pattern to limit search (e.g., '*.py'). Multiple patterns can be specified. Files can be excluded based on pattern by prefixing pattern with '!' (e.g., '!*.test.py')
             - ignore-case: Perform case-insensitive matching
-            - context: Number of context lines to show around each match
+            - num-context-lines: Number of context lines to show around each match
+            
+            Output includes filenames, line numbers, and matching content.
             
             Examples:
 
@@ -74,7 +76,7 @@ class FileTextSearch(Command):
             src/core/command.py:9:import textwrap
             src/core/command.py:10:from abc import ABC, abstractmethod■
             
-            ▶file_text_search "function" . --ignore-case --context 2■
+            ▶file_text_search "function" . --ignore-case --num-context-lines 2■
             ✅src/utils/files.py:24:  
             src/utils/files.py:25:def read_function(file_path):
             src/utils/files.py:26:    (Read file contents)
@@ -109,7 +111,7 @@ class FileTextSearch(Command):
                                 "Prefix with '!' to exclude files matching the pattern.")
         parser.add_argument("--ignore-case", action="store_true", help="Perform case-insensitive matching")
         
-        parser.add_argument("--context", type=int, default=0, help="Number of context lines to show around each match")
+        parser.add_argument("--num-context-lines", type=int, default=0, help="Number of context lines to show around each match")
 
         # Split statement into parts using shlex for proper handling of quoted arguments
         args = shlex.split(statement)
@@ -121,7 +123,7 @@ class FileTextSearch(Command):
             path=parsed_args.path,
             file_patterns=parsed_args.file_patterns,
             ignore_case=parsed_args.ignore_case,
-            context=parsed_args.context
+            num_context_lines=parsed_args.num_context_lines
         )
 
     def validate(self, session, statement: str, data: Optional[str] = None) -> None:
@@ -163,7 +165,7 @@ class FileTextSearch(Command):
             search_path = path
 
         # Build the grep command
-        grep_cmd = ["grep", "-r", "--color=never"]
+        grep_cmd = ["grep", "-r", "-n", "--color=never"]
 
         # Add case-insensitive flag if requested
         if args.ignore_case:
@@ -171,9 +173,9 @@ class FileTextSearch(Command):
             grep_cmd.append("-i")
 
         # Add context lines if specified
-        if args.context > 0:
-            logger.debug(f"Adding context lines (-C {args.context}) to grep command")
-            grep_cmd.extend(["-C", str(args.context)])
+        if args.num_context_lines > 0:
+            logger.debug(f"Adding context lines (-C {args.num_context_lines}) to grep command")
+            grep_cmd.extend(["-C", str(args.num_context_lines)])
 
         # Add the pattern and search path
         grep_cmd.extend([pattern, search_path])

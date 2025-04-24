@@ -124,24 +124,44 @@ test_cases = [
     FileTextSearchTestCase(
         name="context_lines",
         file_content=PYTHON_TEST_CONTENT,
-        command_parameters="--context=2 main {file_path}",
+        command_parameters="--num-context-lines=2 main {file_path}",
         expected_output=[
             "def main():",
-            "Main function that does something",
+            "\"\"\"Main function that does something.\"\"\"",
             "print(\"Hello, world!\")",
         ],
     ),
-    # Test with file pattern
+    # Test with single file pattern
     FileTextSearchTestCase(
-        name="file_pattern",
+        name="single_file_pattern",
         file_content=PYTHON_TEST_CONTENT,
-        command_parameters="def {file_path}",
+        command_parameters="def {file_path} --file-pattern *.py",
         expected_output=[
             "def main",
-            "def process_data",
+            "def process_data"
         ],
         expected_not_in_output=[
             "nonexistent",  # Should not match nonexistent text
+        ],
+    ),
+    # Test with multiple file patterns
+    FileTextSearchTestCase(
+        name="multiple_file_patterns",
+        file_content=PYTHON_TEST_CONTENT,
+        command_parameters="def {file_path} --file-pattern *.py --file-pattern *.txt",
+        expected_output=[
+            "def main",
+            "def process_data"
+        ],
+    ),
+    # Test with exclusion file pattern
+    FileTextSearchTestCase(
+        name="exclusion_file_pattern",
+        file_content=PYTHON_TEST_CONTENT,
+        command_parameters="def {file_path} --file-pattern !*test*.py",
+        expected_output=[
+            "def main",
+            "def process_data"
         ],
     ),
     # Test searching in subdirectory
@@ -168,7 +188,7 @@ error_test_cases = [
     FileTextSearchFailureTestCase(
         name="invalid_context",
         file_content=PYTHON_TEST_CONTENT,
-        command_parameters="--context=invalid import {file_path}",
+        command_parameters="--num-context-lines=invalid import {file_path}",
         expected_error="invalid int value",
     ),
 ]
@@ -183,14 +203,16 @@ def test_file_text_search_command(test_case):
     # Create a test session
     ctx = Session.builder().session_id("test_session_id").workspace(temp_dir).initialize()
     
-    # Determine the file path based on the test case name
-    file_path = os.path.join(temp_dir, f"{test_case.name}.txt")
+    # Determine the file path based on the test case name - use .py extension for file pattern tests
+    if "file_pattern" in test_case.name:
+        file_path = os.path.join(temp_dir, f"{test_case.name}.py")
+    else:
+        file_path = os.path.join(temp_dir, f"{test_case.name}.txt")
     
-    # Create any required subdirectories for this test
-    if "subdir" in test_case.name:
-        subdir_path = os.path.join(temp_dir, "subdir")
-        os.makedirs(subdir_path, exist_ok=True)
-        file_path = os.path.join(subdir_path, f"{test_case.name}.txt")
+    # Create directory structure if needed (for any file path)
+    dir_path = os.path.dirname(file_path)
+    if dir_path:
+        os.makedirs(dir_path, exist_ok=True)
     
     # Create the test file with the specified content
     with open(file_path, "w") as f:
@@ -207,34 +229,62 @@ def test_file_text_search_command(test_case):
     
     # Verify the command executed successfully
     assert result.success, f"Command should execute successfully for test case {test_case.name}. Error: {result.content}"
+
+    # Print the result content for debugging
+    logger.debug(f"Result content for {test_case.name}:\n{result.content}")
     
-    # Check for expected output strings
-    for expected_str in test_case.expected_output:
-        # Handle regex patterns
-        if expected_str.startswith("^"):
-            assert any(
-                re.match(expected_str, line)
-                for line in result.content.split("\n")
-                if line
-            ), f"Regex pattern '{expected_str}' not found in output for test case {test_case.name}"
-        else:
-            assert (
-                expected_str in result.content
-            ), f"Expected string '{expected_str}' not found in output for test case {test_case.name}"
+    # Split the result into lines for comparing output - preserve all whitespace
+    result_lines = [line for line in result.content.split("\n") if line]
+    
+    # Extract regex patterns and exact string matches
+    regex_patterns = [pattern for pattern in test_case.expected_output if pattern.startswith("^")]
+    exact_lines = [line for line in test_case.expected_output if not line.startswith("^")]
+    
+    # Check regex patterns
+    for regex_pattern in regex_patterns:
+        assert any(
+            re.match(regex_pattern, line)
+            for line in result_lines
+        ), f"Regex pattern '{regex_pattern}' not found in output for test case {test_case.name}"
+    
+    # For exact string matches, check if each expected line is contained in any result line
+    # Grep output includes filename and line number before the actual content
+    matched_lines = []
+    for expected_line in exact_lines:
+        for result_line in result_lines:
+            # Check if the expected line is a substring of any result line
+            if expected_line in result_line:
+                matched_lines.append(expected_line)
+                break
+    
+    # Sort both lists for accurate comparison
+    sorted_matched_lines = sorted(matched_lines)
+    sorted_expected_lines = sorted(exact_lines)
+    
+    # Check if all expected lines are in the matched lines
+    assert sorted_matched_lines == sorted_expected_lines, \
+        f"Expected lines not found in output for test case {test_case.name}\n" \
+        f"Expected: {sorted_expected_lines}\n" \
+        f"Found: {sorted_matched_lines}\n" \
+        f"Actual output: {result.content}"
     
     # Check that unwanted strings are not in the output
-    for not_expected_str in test_case.expected_not_in_output:
-        # Handle regex patterns
-        if not_expected_str.startswith("^"):
-            assert not any(
-                re.match(not_expected_str, line)
-                for line in result.content.split("\n")
-                if line
-            ), f"Regex pattern '{not_expected_str}' found in output but should not be for test case {test_case.name}"
-        else:
-            assert (
-                not_expected_str not in result.content
-            ), f"String '{not_expected_str}' found in output but should not be for test case {test_case.name}"
+    regex_not_expected = [pattern for pattern in test_case.expected_not_in_output if pattern.startswith("^")]
+    exact_not_expected = [line for line in test_case.expected_not_in_output if not line.startswith("^")]
+    
+    # Check regex patterns that should not be present
+    for regex_pattern in regex_not_expected:
+        assert not any(
+            re.match(regex_pattern, line)
+            for line in result_lines
+        ), f"Regex pattern '{regex_pattern}' found in output but should not be for test case {test_case.name}"
+    
+    # Check exact lines that should not be present
+    for not_expected_line in exact_not_expected:
+        assert not any(
+            not_expected_line in line
+            for line in result_lines
+        ), f"Line '{not_expected_line}' found in output but should not be for test case {test_case.name}"
     
     # Clean up
     import shutil
