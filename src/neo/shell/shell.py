@@ -9,7 +9,8 @@ import logging
 import jsonschema
 import json
 import concurrent.futures
-from typing import Dict, Any, List, Optional, Union, Future
+from concurrent.futures import Future
+from typing import Dict, Any, List, Optional, Union
 
 from src.neo.core.messages import CommandResult, CommandCall, StructuredOutput, ParsedCommand, OutputType, PrimitiveOutputType
 from src.neo.commands.base import Command
@@ -99,39 +100,25 @@ class Shell:
             ValueError: If the command is not registered or not found
         """
         # Extract data if present (after pipe symbol)
-        data = None
         if "｜" in command_input:
             parts = command_input.split("｜", 1)
-            if len(parts) == 2:
-                statement_part, data = parts
-                statement_part = statement_part.strip()
-                data = data.strip() if data else None
-            else:
-                # Handle case where command starts with pipe
-                statement_part = ""
-                data = parts[0].strip() if parts[0] else None
+            statement, data = parts
         else:
-            statement_part = command_input.strip()
+            statement, data = command_input, None
+
+        statement = statement.strip()
 
         # Get the command name (first word) from statement part if available
-        statement_parts = statement_part.split() if statement_part else []
-        
-        # If statement is empty but command starts with pipe, take first word of data as command
-        if not statement_parts and data:
-            # For empty statement with data, assume first token in command_input is the command name
-            command_name = command_input.split()[0] if command_input.split() else ""
-        else:
-            # Normal case - command name is first word in statement
-            if not statement_parts:
-                raise ValueError("Empty command input")
-            command_name = statement_parts[0]
+        statement_parts = statement.split(maxsplit=1)
+        if not statement_parts:
+            raise ValueError("Empty command input")
 
-        # Check if command exists
+        command_name = statement_parts[0]
+        parameters = statement_parts[1] if len(statement_parts) > 1 else ""
         if command_name not in self._commands:
             raise ValueError(f"Command '{command_name}' is not registered")
 
-        # Return the parsed command with the full statement
-        return ParsedCommand(command_name, statement_part, data)
+        return ParsedCommand(command_name, parameters, data)
 
     def validate(self, command_input: str) -> None:
         """Validate a command input string."""

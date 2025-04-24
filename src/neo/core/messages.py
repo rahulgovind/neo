@@ -4,7 +4,8 @@ Message classes for representing conversation content.
 
 import json
 import re
-from dataclasses import dataclass
+import dataclasses
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 # Use forward references to avoid circular imports
@@ -274,25 +275,31 @@ class StructuredOutput(CommandResult):
         )
 
 
+@dataclass
 class Message:
     """
     Represents a message in the conversation with role and content blocks.
     """
+    role: str
+    content: List[ContentBlock]
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    assistant_prefill: Optional[str] = None
+    
+    def __post_init__(self):
+        # Handle string content by converting to TextBlock
+        if isinstance(self.content, str):
+            self.content = [TextBlock(self.content)]
 
-    def __init__(
-        self,
-        role: str,
-        content: Union[str, List[ContentBlock]],
-        metadata: Optional[Dict[str, Any]] = None,
-    ):
-        self.role = role
-        if isinstance(content, str):
-            content = [TextBlock(content)]
-        self.content = content or []
+            
+        # Validate content blocks
         assert all(
             isinstance(block, ContentBlock) for block in self.content
         ), "All content blocks must be instances of ContentBlock"
-        self.metadata = metadata or {}
+    
+    @classmethod
+    def create(cls, role: str, content: Union[str, List[ContentBlock]], **kwargs) -> "Message":
+        """Factory method to create a Message with default values."""
+        return cls(role=role, content=content, **kwargs)
 
     def add_content(self, content: ContentBlock) -> None:
         assert isinstance(content, ContentBlock), "Content must be a ContentBlock"
@@ -354,10 +361,11 @@ class Message:
         )
 
     def copy(self, metadata: Optional[Dict[str, Any]] = None) -> "Message":
-        return Message(
-            self.role,
-            self.content.copy(),
-            metadata if metadata else self.metadata.copy(),
+        """Create a copy of this message, optionally with different metadata."""
+        return dataclasses.replace(
+            self,
+            content=self.content.copy(),
+            metadata=metadata if metadata is not None else self.metadata.copy()
         )
 
     def __str__(self) -> str:

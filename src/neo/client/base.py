@@ -358,8 +358,6 @@ class BaseClient:
         # Validate response and extract content
         try:
             content = response.choices[0].message.content
-            if messages[-1].role == "assistant":
-                content = messages[-1].model_text() + content
             if COMMAND_END in content:
                 content = content[:content.find(COMMAND_END) + 1]
             
