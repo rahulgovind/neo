@@ -8,7 +8,8 @@ It acts as a central hub for executing commands by name.
 import logging
 import jsonschema
 import json
-from typing import Dict, Any, List, Optional, Union
+import concurrent.futures
+from typing import Dict, Any, List, Optional, Union, Future
 
 from src.neo.core.messages import CommandResult, CommandCall, StructuredOutput, ParsedCommand, OutputType, PrimitiveOutputType
 from src.neo.commands.base import Command
@@ -33,6 +34,8 @@ class Shell:
     def __init__(self, session: Session):
         self._commands: Dict[str, Command] = {}
         self._session = session
+        # Create a single thread pool executor for async command execution
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
         # Register built-in commands
         self._register_builtin_commands()
@@ -238,6 +241,25 @@ class Shell:
         except Exception as e:
             logger.error(f"Error executing command {command_name}: {str(e)}")
             return CommandResult(content=str(e), success=False, error=e)
+            
+    def execute_async(
+        self, command_name: str, statement: str, data: Optional[str] = None
+    ) -> Future[CommandResult]:
+        """
+        Execute a command asynchronously with the given statement and data.
+        
+        This method runs the command in a separate thread and returns a Future object
+        that can be used to obtain the result when it's ready.
+        
+        Args:
+            command_name: The name of the command to execute
+            statement: The command statement (arguments)
+            data: Optional data to pass to the command (similar to stdin)
+            
+        Returns:
+            A Future object that will contain the CommandResult when done
+        """
+        return self._executor.submit(self.execute, command_name, statement, data)
 
     def process_commands(self, commands: List[CommandCall]) -> List[CommandResult]:
         """
