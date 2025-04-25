@@ -225,7 +225,7 @@ class FileTextSearch(Command):
                     
                 case_info = " (case-insensitive)" if args.ignore_case else ""
                 summary = f"Found {match_count} matches for '{pattern}' in {search_path_display}{file_pattern_info}{case_info}"
-                return CommandResult(content=result, success=True, summary=summary)
+                return CommandResult(content=result, success=True)
             elif process.returncode == 1:
                 summary = f"No matches found for '{pattern}'"
                 return CommandResult(

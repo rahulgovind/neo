@@ -201,7 +201,6 @@ class CommandResult(ContentBlock):
         content: str,
         success: bool,
         error: Optional[Exception] = None,
-        summary: Optional[str] = None,
         result: Optional[Any] = None,
         command_call: Optional[ParsedCommand] = None,
     ):
@@ -209,7 +208,6 @@ class CommandResult(ContentBlock):
         self.content = content
         self.success = success
         self.error = error
-        self.summary = summary
         self.result = result
         self.command_call = command_call
 
@@ -220,9 +218,7 @@ class CommandResult(ContentBlock):
         return f"{prefix}{escaped_content}{COMMAND_END}"
 
     def display_text(self) -> str:
-        """Returns the summary if available, otherwise returns the text."""
-        if self.summary is not None:
-            return self.summary
+        """Returns the model text representation."""
         return self.model_text()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -233,7 +229,6 @@ class CommandResult(ContentBlock):
             "type": "CommandResult",
             "value": self.content,
             "success": self.success,
-            "summary": self.summary,
         }
 
     @classmethod
@@ -242,7 +237,6 @@ class CommandResult(ContentBlock):
         return cls(
             content=data.get("value", ""),
             success=data.get("success", True),
-            summary=data.get("summary"),
         )
 
 

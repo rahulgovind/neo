@@ -186,7 +186,7 @@ class ReadFileCommand(Command):
             start_line, end_line = file_content.displayed_range
             summary += f" (showing lines {start_line+1}-{end_line} of {file_content.line_count})"
 
-            return CommandResult(content=formatted_content, success=True, summary=summary)
+            return CommandResult(content=formatted_content, success=True)
             
         except FileNotFoundError as e:
             return CommandResult(success=False, content=str(e))

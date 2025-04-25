@@ -278,7 +278,7 @@ class FilePathSearch(Command):
                     content_info = f" containing '{args.content_pattern}'"
 
                 summary = f"Found {file_count} items in {search_path_display}{pattern_info}{type_info}{content_info}"
-                return CommandResult(content=result, success=True, summary=summary)
+                return CommandResult(content=result, success=True)
             else:
                 # Error occurred
                 error_msg = f"Find failed: {process.stderr}"

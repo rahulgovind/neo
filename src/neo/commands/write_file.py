@@ -135,4 +135,4 @@ class WriteFileCommand(Command):
         file_path = os.path.basename(path)
         summary = f"File updated: {file_path} (+{lines_added},-{lines_deleted})"
 
-        return CommandResult(content=result_text, success=True, summary=summary)
+        return CommandResult(content=result_text, success=True)
