@@ -144,12 +144,12 @@ class Shell:
         try:
             parsed_cmd = self.parse(command_input)
         except Exception as e:
-            return CommandResult(result=None, success=False, error=str(e))
+            return CommandResult(success=False, error=str(e))
 
         logger.debug(f"Executing command with parameters: {parsed_cmd.parameters}")
         result = self.execute(parsed_cmd.name, parsed_cmd.parameters, parsed_cmd.data)
         logger.debug(f"Command result success: {result.success}")
-        logger.debug(f"Command result: {result.result}")
+        logger.debug(f"Command result content: {result.content}")
 
         return result
 
@@ -197,7 +197,7 @@ class Shell:
 
             except Exception as e:
                 # Create an error result and add it to our collection
-                error_result = CommandResult(result=None, success=False, error=str(e))
+                error_result = CommandResult(success=False, error=str(e))
                 result_blocks.append(error_result)
 
         return result_blocks

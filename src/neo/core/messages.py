@@ -201,14 +201,12 @@ class CommandResult(ContentBlock):
         content: str,
         success: bool,
         error: Optional[Exception] = None,
-        result: Optional[Any] = None,
         command_call: Optional[ParsedCommand] = None,
     ):
         self._text = content  # Keep TextBlock compatibility
         self.content = content
         self.success = success
         self.error = error
-        self.result = result
         self.command_call = command_call
 
     def model_text(self) -> str:
@@ -223,7 +221,7 @@ class CommandResult(ContentBlock):
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the CommandResult to a dictionary for serialization.
-        Note: error and result are intentionally excluded.
+        Note: error is intentionally excluded.
         """
         return {
             "type": "CommandResult",
@@ -246,7 +244,7 @@ class StructuredOutput(CommandResult):
     def __init__(
         self, content: str, value: Optional[Any] = None, destination: str = "default"
     ):
-        super().__init__(content, success=True, result=value)
+        super().__init__(content, success=True)
         self.value = value
         self.destination = destination
 
