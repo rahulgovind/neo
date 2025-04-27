@@ -17,12 +17,18 @@ logger = logging.getLogger(__name__)
 # Load environment variables from .env file if present
 load_dotenv()
 
-if "pytest" not in sys.modules:
-    NEO_HOME = os.environ.get("NEO_HOME", os.path.expanduser("~/.neo"))
-    IS_TESTING = False
-else:
+# Check if IS_TESTING environment variable is already set
+if os.environ.get("IS_TESTING") == "1":
     NEO_HOME = "/tmp/.neo"
     IS_TESTING = True
+else:
+    # Use default logic based on pytest module presence
+    if "pytest" not in sys.modules:
+        NEO_HOME = os.environ.get("NEO_HOME", os.path.expanduser("~/.neo"))
+        IS_TESTING = False
+    else:
+        NEO_HOME = "/tmp/.neo"
+        IS_TESTING = True
 
 def setup_logging() -> None:
     """
