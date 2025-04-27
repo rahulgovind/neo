@@ -12,9 +12,11 @@ Example:
   - [ ] TODO: Subtask 1 (Last updated at: Apr 24, 11:05 PM)
 ```
 - Update the file with each new user request and as progress is made.
-- Keep at most 3 completed items per list level.
-- Remove items if user confirms they are no longer needed.
 - You may add new items to this list as you discover more tasks based on your learnings. Only add concrete tasks that need to be done to achieve the user's request. Do not add items like future improvements.
+
+VERY VERY IMPORTANT: Keep at most three completed items per list level. 
+- For example, if subtasks 1-4 have completed then remove subtask 1.
+- Remove items if user confirms they are no longer needed.
 
 ---
 
@@ -30,6 +32,9 @@ Follow the following guidelines when making changes -
   - Specific components should only handle the errors that are relevant to them and that they are expected to hit.
   - Structure the code and interfaces in a way that obviates the need for error handling.
   - Do not catch arbitrary exceptions. It is fine for truly unexpected errors to propagate upwards.
+
+When running commands - 
+- Don't add a "cd" before the command unless the subsequent command needs a different current working directory.
 
 When writing production code -
 - Use the DRY principle. Prefer not repeating code.
