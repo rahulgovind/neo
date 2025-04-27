@@ -13,13 +13,37 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Tuple
 
-from src.neo.core.messages import CommandResult
+from src.neo.core.messages import CommandResult, CommandOutput
 from src.utils.command_parser import CommandParser
 from src.neo.exceptions import FatalError
 from src.neo.session import Session
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class FileUpdate(CommandOutput):
+    """Specialized CommandOutput for file update operations.
+    
+    This provides structured information about changes made to a file,
+    including a diff representing the changes.
+    """
+    name: str
+    message: str
+    diff: str  # Contains the update made to the file
+
+
+@dataclass
+class ShellOutput(CommandOutput):
+    """Specialized CommandOutput for shell command operations.
+    
+    This provides structured information about shell command execution,
+    including console output for display in a terminal.
+    """
+    name: str
+    message: str
+    console: str  # Contains the console output of the command
 
 
 @dataclass

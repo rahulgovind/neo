@@ -20,6 +20,7 @@ from typing import Optional, List
 from src.neo.session import Session
 from src.neo.exceptions import FatalError
 from src.neo.core.constants import COMMAND_END, STDIN_SEPARATOR
+from src.neo.commands.base import FileUpdate
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -149,10 +150,12 @@ def test_write_file_command(test_case):
         # Determine the file path based on the test case name
         file_path = os.path.join(temp_dir, f"{test_case.name}.txt")
         
-        # For overwrite test, create the file first
+        # Save original content for overwrite test
+        original_content = None
         if test_case.name == "overwrite_existing":
+            original_content = PYTHON_TEST_CONTENT
             with open(file_path, "w") as f:
-                f.write(PYTHON_TEST_CONTENT)
+                f.write(original_content)
         
         # For directory test, use a nested path
         if test_case.name == "create_in_new_dir":
@@ -190,21 +193,77 @@ def test_write_file_command(test_case):
                     re.match(not_expected_str, line)
                     for line in result.content.split("\n")
                     if line
-                ), f"Regex pattern '{not_expected_str}' found in output but should not be for test case {test_case.name}"
+                ), f"Unwanted regex pattern '{not_expected_str}' found in output for test case {test_case.name}"
             else:
                 assert (
                     not_expected_str not in result.content
-                ), f"String '{not_expected_str}' found in output but should not be for test case {test_case.name}"
+                ), f"Unwanted string '{not_expected_str}' found in output for test case {test_case.name}"
         
-        # Check if the file exists if required
+        # Check that the file exists if expected
         if test_case.check_file_exists:
-            assert os.path.exists(file_path), f"File should have been created for test case {test_case.name}"
+            assert os.path.exists(
+                file_path
+            ), f"File was not created for test case {test_case.name}"
         
-        # Check the file content if required
-        if test_case.check_file_content:
-            with open(file_path, "r", encoding="utf-8") as f:
+        # Check file content if expected
+        if test_case.check_file_content and test_case.check_file_exists:
+            with open(file_path, "r") as f:
                 file_content = f.read()
                 assert file_content == test_case.file_content, f"File content doesn't match expected for test case {test_case.name}"
+        
+        # Validate the FileUpdate output
+        assert hasattr(result, 'command_output'), "Command result should have command_output attribute"
+        assert result.command_output is not None, "Command output should not be None"
+        assert isinstance(result.command_output, FileUpdate), f"Command output should be FileUpdate instance, got {type(result.command_output)}"
+        
+        # Validate FileUpdate fields
+        file_update = result.command_output
+        assert file_update.name == "write_file", "Command name should be 'write_file'"
+        
+        # For a new file, message should contain "Created"
+        if test_case.name == "create_new_file" or test_case.name == "create_in_new_dir":
+            assert "Created" in file_update.message, f"Message should indicate file creation for test case {test_case.name}"
+        # For overwriting, message should contain "Updated"
+        elif test_case.name == "overwrite_existing":
+            assert "Updated" in file_update.message, f"Message should indicate file update for test case {test_case.name}"
+        
+        # Validate diff content
+        assert hasattr(file_update, 'diff'), "FileUpdate should have diff attribute"
+        assert file_update.diff.strip(), "Diff should not be empty"
+        
+        # Validate diff content based on the format we're generating
+        # Ensure diff shows file name and has a diff header
+        assert os.path.basename(file_path) in file_update.diff, "Diff should include the file name"
+        assert "+++" in file_update.diff, "Diff should show additions marker"
+        assert "@@" in file_update.diff, "Diff should contain a header with line numbers"
+        
+        # Verify that the diff contains the actual content changes
+        if test_case.name == "overwrite_existing":
+            # For overwrite tests, make sure the diff contains both old and new content markers
+            assert original_content is not None, "Original content should be set for overwrite test"
+            
+            # Check that at least some content from both files is represented in the diff
+            sample_old_line = original_content.splitlines()[3].strip() if len(original_content.splitlines()) > 3 else original_content.splitlines()[0].strip()
+            sample_new_line = test_case.file_content.splitlines()[0].strip()
+            
+            # Look for content markers - minus sign for old content, plus sign for new content
+            has_old_content = any(line.strip().endswith(sample_old_line) and line.startswith('-') for line in file_update.diff.splitlines())
+            has_new_content = any(line.strip().endswith(sample_new_line) and line.startswith('+') for line in file_update.diff.splitlines())
+            
+            assert has_old_content, f"Diff should contain markers for old content: {sample_old_line}"
+            assert has_new_content, f"Diff should contain markers for new content: {sample_new_line}"
+        
+        # For new files, diff should show only additions
+        if test_case.name == "create_new_file" or test_case.name == "create_in_new_dir":
+            # The diff header should show something like @@ -1,0 +1,5 @@ indicating new lines added
+            assert "+1," in file_update.diff, "Diff should show line additions in the header"
+            # There should be addition markers for the new content
+            assert "\n+" in file_update.diff, "Diff should mark added lines with +"
+            
+        # For overwritten files, diff should show modifications
+        elif test_case.name == "overwrite_existing":
+            assert "--- a/" in file_update.diff, "Diff for modified file should show source file"
+            assert "+++ b/" in file_update.diff, "Diff should show destination file"
     
     finally:
         # Clean up

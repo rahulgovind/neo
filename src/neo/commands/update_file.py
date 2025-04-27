@@ -12,11 +12,12 @@ import shlex
 from dataclasses import dataclass
 from typing import Dict, Any, Optional, List
 
-from src.neo.commands.base import Command
+from src.neo.commands.base import Command, FileUpdate
 from src.neo.exceptions import FatalError
 from src.neo.core.messages import CommandResult
 from src.neo.session import Session
 from src.utils.merge import merge
+from src.utils.files import write, FileWriteResult
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -54,19 +55,19 @@ class UpdateFileCommand(Command):
             """\
             Use the `update_file` command to update partial contents of a file.
 
-            USAGE: ▶update_file PATH|DIFF■
+            USAGE: ▶update_file PATH｜DIFF■
 
             - PATH: Path to the file to update (required)
             - DIFF: Diff structure to apply (required)
 
             DIFF format:
-            [@DELETE <Optional comment>
-            Lines to delete]
-            [@UPDATE <Optional comment>
+            @DELETE <Optional comment>
+            Lines to delete
+            @UPDATE <Optional comment>
             @@BEFORE
             Lines in the original content.
             @@AFTER
-            Lines that replace those in the @@BEFORE section]
+            Lines that replace those in the @@BEFORE section
             
             RULES:
             - Each diff MAY have multiple @DELETE and @UPDATE sections.
@@ -78,6 +79,74 @@ class UpdateFileCommand(Command):
 
             NOTES:
             - Be careful about white spaces! Include necessary whitespace in both the original and new content.
+
+            EXAMPLE:
+            ▶read_file config.js■
+            ✅1:// Configuration file
+            2:const config = {
+            3:    host: 'localhost',
+            4:    port: 8080,
+            5:    debug: false,
+            6:    timeout: 30000
+            7:};
+            8:
+            9:// Export configuration
+            10:module.exports = config;■
+            
+            ▶update_file config.js｜
+            @UPDATE Update configuration settings
+            @@BEFORE
+            3:    host: 'localhost',
+            4:    port: 8080,
+            @@AFTER
+            3:    host: 'production.example.com',
+            4:    port: 443,
+            
+            @UPDATE Insert secure settings
+            @@BEFORE
+            6:    timeout: 30000
+            7:};
+            @@AFTER
+            6:    timeout: 30000,
+            7:    secure: true,
+            8:    retryCount: 3,
+            9:};
+            
+            @DELETE Delete the export comment
+            9:// Export configuration
+            
+            @UPDATE
+            @@BEFORE
+            10:module.exports = config;
+            @@AFTER
+            10:// Add environment-specific overrides
+            11:if (process.env.NODE_ENV === 'development') {
+            12:    config.host = 'localhost';
+            13:    config.port = 8080;
+            14:}
+            15:
+            16:module.exports = config;
+            ■
+            ✅File updated successfully■
+            
+            # Final file (config.js) after all sequential operations:
+            ▶read_file config.js■
+            ✅1:// Configuration file
+            2:const config = {
+            3:    host: 'production.example.com',
+            4:    port: 443,
+            5:    debug: false,
+            6:    timeout: 30000,
+            7:    secure: true,
+            8:    retryCount: 3
+            9:};
+            10:// Add environment-specific overrides
+            11:if (process.env.NODE_ENV === 'development') {
+            12:    config.host = 'localhost';
+            13:    config.port = 8080;
+            14:}
+            15:
+            16:module.exports = config;■
             """
         )
 
@@ -158,37 +227,38 @@ class UpdateFileCommand(Command):
                 file_name = os.path.basename(file_path)
                 return CommandResult(
                     content=f"File not found: {file_path}",
-                    success=False,
-                    summary=f"Failed to update {file_name}: File not found",
+                    success=False
                 )
 
             # Read the file content
             with open(file_path, "r", encoding="utf-8") as f:
                 file_content = f.read()
+                
             # Apply the merge with the diff
             updated_content = merge(file_content, diff_text)
-            # If we got here, merge succeeded, write the updated content to the file
-            # Format the statement string properly for write_file command
-            write_statement = f"{file_path}"
-            write_result = shell.execute(
-                "write_file",
-                write_statement,
-                updated_content
+            
+            # Use the enhanced write function directly with diff generation
+            workspace = session.workspace
+            relative_path = os.path.relpath(file_path, workspace)
+            
+            # Write the updated content and get the FileWriteResult
+            write_result = write(workspace, relative_path, updated_content)
+            
+            logger.info(f"Successfully applied diff to {file_path}")
+            file_name = os.path.basename(file_path)
+            
+            # Create FileUpdate command output using the diff from write_result
+            file_update = FileUpdate(
+                name="update_file",
+                message=f"Updated {file_name} (+{write_result.lines_added},-{write_result.lines_deleted})",
+                diff=write_result.diff
             )
-
-            if write_result.success:
-                logger.info(f"Successfully applied diff to {file_path}")
-                file_name = os.path.basename(file_path)
-                summary = f"File updated: {file_name}"
-                return CommandResult(
-                    content="File updated successfully", success=True, summary=summary
-                )
-            else:
-                return CommandResult(
-                    success=False,
-                    content=str(write_result.error),
-                    error=write_result.error,
-                )
+            
+            return CommandResult(
+                content=f"File updated successfully", 
+                success=True, 
+                command_output=file_update
+            )
 
         except RuntimeError as e:
             # Model fallback is now always enabled
@@ -199,6 +269,5 @@ class UpdateFileCommand(Command):
             file_name = os.path.basename(file_path)
             return CommandResult(
                 content=f"Failed to update file: {error_message}",
-                success=False,
-                summary=f"Failed to update {file_name}: {error_message}",
+                success=False
             )

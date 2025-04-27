@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional, List
 
 from src.neo.commands.base import Command
 from src.neo.session import Session
-from src.neo.core.messages import CommandResult
+from src.neo.core.messages import CommandResult, CommandOutput
 from src.neo.exceptions import FatalError
 from src.utils.subprocess import run_shell_command
 
@@ -252,9 +252,9 @@ class FilePathSearch(Command):
                 
                 # Create a summary of the operation
                 if not result_files:
-                    summary = "No matching files found"
+                    message = "No matching files found"
                     return CommandResult(
-                        content="No matching files found.", success=True, summary=summary
+                        content="No matching files found.", success=True
                     )
                 
                 file_count = len(result_files)
@@ -277,8 +277,27 @@ class FilePathSearch(Command):
                 if args.content_pattern:
                     content_info = f" containing '{args.content_pattern}'"
 
+                # Create message for CommandOutput
+                command_msg = f"Search for files in {search_path_display}"
+                if include_patterns:
+                    command_msg += f" with pattern {', '.join(include_patterns)}"
+                if args.content_pattern:
+                    command_msg += f" and content '{args.content_pattern}'"
+                
+                # Create summary text
                 summary = f"Found {file_count} items in {search_path_display}{pattern_info}{type_info}{content_info}"
-                return CommandResult(content=result, success=True)
+                
+                # Create CommandOutput
+                command_output = CommandOutput(
+                    name=self.name,
+                    message=command_msg
+                )
+                
+                return CommandResult(
+                    content=result, 
+                    success=True, 
+                    command_output=command_output
+                )
             else:
                 # Error occurred
                 error_msg = f"Find failed: {process.stderr}"

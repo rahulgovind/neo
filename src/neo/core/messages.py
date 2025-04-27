@@ -6,7 +6,8 @@ import json
 import re
 import dataclasses
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, Any, List, Optional, Set, Union, Protocol, runtime_checkable, TYPE_CHECKING
+from abc import ABC, abstractmethod
 
 # Use forward references to avoid circular imports
 if TYPE_CHECKING:
@@ -193,6 +194,18 @@ def _unescape_special_chars(content: str) -> str:
     return result
 
 
+@dataclass
+class CommandOutput:
+    """Base class for structured command output.
+    
+    This class serves as a base for command-specific output structures.
+    Commands can extend this class to provide structured data 
+    alongside the text representation.
+    """
+    name: str
+    message: str
+
+
 class CommandResult(ContentBlock):
     """Represents a command result content block in a message."""
 
@@ -202,12 +215,13 @@ class CommandResult(ContentBlock):
         success: bool,
         error: Optional[Exception] = None,
         command_call: Optional[ParsedCommand] = None,
+        command_output: Optional[CommandOutput] = None,
     ):
-        self._text = content  # Keep TextBlock compatibility
         self.content = content
         self.success = success
         self.error = error
         self.command_call = command_call
+        self.command_output = command_output
 
     def model_text(self) -> str:
         prefix = SUCCESS_PREFIX if self.success else ERROR_PREFIX
@@ -231,7 +245,10 @@ class CommandResult(ContentBlock):
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CommandResult":
-        """Create a CommandResult from a dictionary."""
+        """Create a CommandResult from a dictionary.
+        
+        Note: command_output is not loaded from serialized data.
+        """
         return cls(
             content=data.get("value", ""),
             success=data.get("success", True),

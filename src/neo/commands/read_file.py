@@ -12,7 +12,7 @@ import shlex
 from dataclasses import dataclass
 from typing import Dict, Any, Optional
 
-from src.neo.core.messages import CommandResult
+from src.neo.core.messages import CommandResult, CommandOutput
 from src.neo.commands.base import Command
 from src.neo.exceptions import FatalError
 from src.utils.files import read
@@ -169,24 +169,29 @@ class ReadFileCommand(Command):
             formatted_content = file_content.format(include_line_numbers=include_line_numbers)
 
 
-            # Create a summary of the operation
+            # Get file path and line information for CommandOutput
             file_path = os.path.basename(full_path)
-            summary = f"Read file: {file_path}"
-            
-            # Add line range info to summary if applicable
-            if from_line is not None or until_line is not None:
-                line_range = ""
-                if from_line is not None:
-                    line_range += f"from line {from_line} "
-                if until_line is not None:
-                    line_range += f"to line {until_line}"
-                summary += f" ({line_range.strip()})"
-                
-            # Add displayed range info
             start_line, end_line = file_content.displayed_range
-            summary += f" (showing lines {start_line+1}-{end_line} of {file_content.line_count})"
-
-            return CommandResult(content=formatted_content, success=True)
+            
+            # Create message for CommandOutput based on whether entire file was read or a specific range
+            if file_content.line_count == (end_line - start_line):
+                # Entire file was read
+                command_msg = f"Analyzed {file_path}"
+            else:
+                # Specific range was read
+                command_msg = f"Analyzed {file_path}:({start_line+1}-{end_line})"
+            
+            # Create CommandOutput
+            command_output = CommandOutput(
+                name=self.name,
+                message=command_msg
+            )
+            
+            return CommandResult(
+                content=formatted_content, 
+                success=True,
+                command_output=command_output
+            )
             
         except FileNotFoundError as e:
             return CommandResult(success=False, content=str(e))

@@ -425,7 +425,19 @@ The Service layer provides a higher-level API for session management and persist
 
 The project includes several components not detailed above:
 
-#### 1. Web Application (src/apps/web/)
+#### 1. Utilities (src/neo/utils/)
+
+Neo includes utility components that provide core functionality used across the application:
+
+**Clock** (`src/neo/utils/clock.py`): Provides time-related operations and abstractions
+- Abstract `Clock` interface defines a consistent API for time operations
+- `RealTimeClock` implementation uses actual system time
+- `FakeClock` implementation simulates time passage for testing
+  - Allows advancing time without waiting for real time to pass
+  - Supports concurrent testing with thread synchronization
+  - Includes utilities for test coordination with `await_sleeps`
+
+#### 2. Web Application (src/apps/web/)
 
 Neo includes a web-based interface as an alternative to the terminal:
 - `app.py`: Implements the web server and routes

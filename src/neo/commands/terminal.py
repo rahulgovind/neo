@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from textwrap import dedent
 from typing import Dict, Any, Optional, List
 
-from src.neo.commands.base import Command, CommandTemplate, CommandParameter
+from src.neo.commands.base import Command, CommandTemplate, CommandParameter, ShellOutput
 from src.neo.core.messages import CommandResult
 from src.neo.session import Session
 from src.utils.terminal_manager import TerminalManager
@@ -137,11 +137,23 @@ class ShellRunCommand(Command):
         if additional_output:
             output += f"\n\n[{additional_output}]"
 
-        # Always consider a running command as successful in this context
-        # This aligns with the test expectations
-        if (exit_code == 0 or exit_code is None):
-            return CommandResult(content=output, success=True)
-        return CommandResult(content=output, success=False)
+        # Set success based on exit code
+        success = (exit_code == 0 or exit_code is None)
+        
+        # Create structured output for shell run command
+        status_msg = "running" if exit_code is None else f"completed with exit code {exit_code}"
+        shell_output = ShellOutput(
+            name="shell_run",
+            message=f"Command {status_msg}",
+            console=output
+        )
+        
+        # Return the result with structured output
+        return CommandResult(
+            content=output, 
+            success=success,
+            command_output=shell_output
+        )
 
 
 @dataclass
@@ -196,24 +208,31 @@ class ShellViewCommand(Command):
         args = self._parse_statement(statement, data)
         shell_id = args.id
 
-        # Use ShellManager to get the output from the shell
-        cmd_status = TerminalManager.view_output(shell_id)  
-
-        # Extract information from CommandStatus
-        output = cmd_status.output or "<No output available>"
-        exit_code = cmd_status.exit_code
-        output_file = cmd_status.output_file
+        # Use ShellManager to get the latest output from the shell
+        cmd_status = TerminalManager.get_status(terminal_id=shell_id, session=session)
+        output = cmd_status.output
+        error = cmd_status.error
         is_truncated = cmd_status.is_truncated
 
-        # Add note about output file if truncated
-        if is_truncated and output_file:
-            output += f"\n\n[Output truncated. Full output available in: {output_file}]"
+        # Prepare message for truncation if applicable
+        truncation_message = "\n[...Output truncated...]" if is_truncated else ""
 
-        # Return based on exit code
-        if exit_code is not None and exit_code != 0:
-            return CommandResult(content=output, success=False)
+        # Format the output
+        content = output + truncation_message
+        
+        # Create structured output for shell view command
+        shell_output = ShellOutput(
+            name="shell_view",
+            message=f"Viewed output from shell with ID '{shell_id}'" + 
+                   (" (truncated)" if is_truncated else ""),
+            console=content
+        )
 
-        return CommandResult(content=output, success=True)
+        return CommandResult(
+            content=content, 
+            success=True,
+            command_output=shell_output
+        )
 
 
 @dataclass
@@ -285,9 +304,19 @@ class ShellWriteCommand(Command):
             terminal_id=shell_id, content=content, press_enter=press_enter
         )
 
-        return CommandResult(
-            content=f"Input sent to shell with ID '{shell_id}'", success=True
+        # Create structured output for shell write command
+        shell_output = ShellOutput(
+            name="shell_write",
+            message=f"Input sent to shell with ID '{shell_id}'",
+            console=""
         )
+
+        return CommandResult(
+            content=f"Input sent to shell with ID '{shell_id}'", 
+            success=True,
+            command_output=shell_output
+        )
+
 
 @dataclass
 class ShellTerminateArgs:
@@ -345,6 +374,16 @@ class ShellTerminateCommand(Command):
 
         # Terminate the process
         TerminalManager.terminate(shell_id)
+        
+        # Create structured output for shell terminate command
+        shell_output = ShellOutput(
+            name="shell_terminate",
+            message=f"Shell process with ID '{shell_id}' terminated",
+            console=""
+        )
+        
         return CommandResult(
-            content=f"Shell process with ID '{shell_id}' terminated", success=True
+            content=f"Shell process with ID '{shell_id}' terminated", 
+            success=True,
+            command_output=shell_output
         )

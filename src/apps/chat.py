@@ -33,7 +33,7 @@ from prompt_toolkit.formatted_text import HTML
 from rich.control import Control
 from src import NEO_HOME
 from src.neo.service.service import Service
-from src.neo.core.messages import Message, TextBlock
+from src.neo.core.messages import Message, TextBlock, CommandCall
 from src.neo.service.session_manager import SessionInfo
 
 # Configure logging
@@ -100,10 +100,13 @@ def print_message(message: Message) -> None:
 
         console.print("")
     else:  # Agent message
-        # For agent messages (Neo), display without a panel border
-        # For agent messages, use Markdown for rich formatting
-        # Print Neo's messages without a panel
+        # Get all command results to display
+        command_results = message.command_results()
+        
+        # Check for structured output first
         structured_output = message.structured_output()
+
+        # print(f"{command_results=} {structured_output=} {command_calls=}")
         if structured_output:
             # Calculate appropriate panel width for text wrapping
             console_width = console.width if console.width else 80
@@ -114,9 +117,93 @@ def print_message(message: Message) -> None:
                 padding=(0, 1),
                 width=max_width,
             ))
-
+        # Process command results with command outputs
+        elif command_results:
+            for result in command_results:
+                if hasattr(result, 'command_output') and result.command_output is not None:
+                    cmd_output = result.command_output
+                    
+                    # Check the type of command output
+                    if hasattr(cmd_output, 'diff'):  # FileUpdate output
+                        # Display file updates in a panel
+                        file_name = cmd_output.message.split()[-1] if ' ' in cmd_output.message else ''
+                        action = "Created" if "Created" in cmd_output.message else "Updated"
+                        console.print(f"📄 [bold green]{action}[/bold green] {file_name}")
+                        
+                        # Only show diff if it's not empty
+                        if cmd_output.diff.strip():
+                            console_width = console.width if console.width else 80
+                            max_width = console_width - 4
+                            
+                            # Colorize the diff output
+                            colorized_lines = []
+                            for line in cmd_output.diff.splitlines():
+                                if line.startswith("+") and not line.startswith("++"):
+                                    # Green for added lines (but not the +++ header)
+                                    colorized_lines.append(f"[green]{line}[/green]")
+                                elif line.startswith("-") and not line.startswith("---"):
+                                    # Red for removed lines (but not the --- header)
+                                    colorized_lines.append(f"[red]{line}[/red]")
+                                else:
+                                    # No color for context lines and headers
+                                    colorized_lines.append(line)
+                            
+                            # Join the colorized lines back together
+                            colorized_diff = "\n".join(colorized_lines)
+                            
+                            console.print(Panel(
+                                colorized_diff,
+                                title="[bold]Diff[/bold]",
+                                border_style="green",
+                                padding=(0, 1),
+                                width=max_width,
+                            ))
+                    
+                    elif hasattr(cmd_output, 'console'):  # ShellOutput output
+                        # Display shell outputs in a panel
+                        console.print(f"🖥️ [bold cyan]{cmd_output.message}[/bold cyan]")
+                        
+                        # Only show console output if it's not empty
+                        if cmd_output.console.strip():
+                            console_width = console.width if console.width else 80
+                            max_width = console_width - 4
+                            console.print(Panel(
+                                cmd_output.console,
+                                title="[bold]Console Output[/bold]",
+                                border_style="blue",
+                                padding=(0, 1),
+                                width=max_width,
+                            ))
+                    
+                    else:  # Generic CommandOutput
+                        # Use appropriate icons based on command name
+                        icon = "✅"
+                        if cmd_output.name == "file_path_search" or cmd_output.name == "file_text_search":
+                            icon = "🔍"
+                        elif cmd_output.name == "read_file":
+                            icon = "📖"
+                        elif cmd_output.name == "wait":
+                            icon = "⏱️"
+                        
+                        console.print(f"{icon} [bold]{cmd_output.message}[/bold]")
+                
+                # If no command output is available, check if there's a command_call to display
+                elif hasattr(result, 'command_call') and result.command_call is not None:
+                    # Only display the command call if command_output is not set
+                    console.print(result.display_text())
+                # Otherwise, fall back to displaying raw result content
+                elif result.content:
+                    console.print(result.display_text())
+        
+        # If no command results or structured output, display the message text
+        # but filter out any CommandCall blocks
         else:
-            console.print(Markdown(message.display_text()))
+            # Create a filtered version of the message without CommandCall blocks
+            filtered_content = [block for block in message.content if not isinstance(block, CommandCall)]
+            if filtered_content:
+                filtered_text = "\n".join(block.display_text() for block in filtered_content)
+                console.print(Markdown(filtered_text))
+            # If there's no content after filtering, don't display anything
 
 class MessageQueue:
 
