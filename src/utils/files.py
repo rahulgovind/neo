@@ -9,10 +9,22 @@ This module provides the core logic for file operations:
 
 import os
 import logging
+import difflib
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 
 
+
+
+@dataclass
+class FileWriteResult:
+    """Results from a file write operation including diff information."""
+    path: str  # Path to the file that was written
+    content: str  # Content that was written to the file
+    lines_added: int  # Number of lines added
+    lines_deleted: int  # Number of lines deleted
+    file_existed: bool  # Whether the file existed before writing
+    diff: str  # Unified diff of the changes
 
 
 @dataclass
@@ -188,14 +200,9 @@ def read(
 
 
 
-def overwrite(  # pylint: disable=unused-argument
-    workspace: str, path: str, content: str, enable_lint: bool = True  # Kept for API compatibility, lint is always checked
-) -> Tuple[bool, int, int]:
-
-
-
+def write(workspace: str, path: str, content: str, enable_lint: bool = True) -> FileWriteResult:
     """
-    Creates a new file or completely overwrites an existing file's content.
+    Creates a new file or completely overwrites an existing file's content with diff generation.
 
     Args:
         workspace: Root workspace directory path
@@ -204,7 +211,7 @@ def overwrite(  # pylint: disable=unused-argument
         enable_lint: Whether to fail on linting errors (default: True)
 
     Returns:
-        Tuple of (success, lines_added, lines_deleted)
+        FileWriteResult object containing success information, line counts, and diff
 
     Raises:
         Various exceptions related to file operations
@@ -213,10 +220,12 @@ def overwrite(  # pylint: disable=unused-argument
     # Normalize the path
     file_path = _normalize_path(workspace, path)
 
-    # Count lines in the existing file if it exists
+    # Initialize variables for existing content
+    old_content = ""
     old_lines = 0
     file_existed = os.path.exists(file_path)
 
+    # Read existing content before making any changes (for accurate diff generation)
     if file_existed:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
@@ -224,9 +233,8 @@ def overwrite(  # pylint: disable=unused-argument
                 old_lines = _count_lines(old_content)
         except (IOError, OSError, UnicodeDecodeError) as e:
             # Handle specific file-related exceptions
-            logger.warning("Couldn't read existing file for line count: %s", e)
-            # Continue with update even if we couldn't get the line count
-
+            logger.warning("Couldn't read existing file for diff generation: %s", e)
+            # Continue with update, the diff will show everything as new
 
     # Create directory structure if needed
     _ensure_directory_exists(file_path)
@@ -246,7 +254,47 @@ def overwrite(  # pylint: disable=unused-argument
         if not is_valid and lint_output:
             lint_warnings = lint_output
 
-    # Write the new content
+    # Generate diff before writing the file
+    # Split content into lines for difflib
+    old_lines_list = old_content.splitlines(True)  # Keep line endings
+    new_lines_list = content.splitlines(True)  # Keep line endings
+    
+    # Generate unified diff
+    file_name = os.path.basename(path)
+    fromfile = f"a/{file_name}"
+    tofile = f"b/{file_name}"
+    
+    # Use a/filename and b/filename for all diffs (even for new files)
+    
+    # Generate the unified diff
+    diff_lines = difflib.unified_diff(
+        old_lines_list, 
+        new_lines_list,
+        fromfile=fromfile,
+        tofile=tofile,
+        n=3  # Context lines
+    )
+    
+    # Join the diff lines into a single string
+    diff_text = "".join(diff_lines)
+    
+    # If difflib didn't generate anything (e.g., for binary files or identical content),
+    # create a simple informative diff
+    if not diff_text and (old_content != content):
+        # Count lines for a simple diff header
+        new_lines_count = _count_lines(content)
+        if file_existed:
+            diff_text = f"--- {fromfile}\n+++ {tofile}\n@@ -1,{old_lines} +1,{new_lines_count} @@\n"
+            # Add a few sample lines if possible
+            for i, line in enumerate(new_lines_list[:5]):
+                diff_text += f"+{line}" if not line.endswith("\n") else f"+{line}"
+        else:
+            # New file - still use a/filename but with empty content indicator
+            diff_text = f"--- {fromfile}\n+++ {tofile}\n@@ -0,0 +1,{new_lines_count} @@\n"
+            for i, line in enumerate(new_lines_list[:5]):
+                diff_text += f"+{line}" if not line.endswith("\n") else f"+{line}"
+            
+    # Now write the content to the file
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(content)
 
@@ -257,20 +305,29 @@ def overwrite(  # pylint: disable=unused-argument
 
     if file_existed:
         # If file already existed, report difference
-        logger.info("Updated file: %s (+%d,-%d)", path, new_lines, old_lines)
+        logger.info("Updated file: %s (+%d,-%d)", path, lines_added, lines_deleted)
     else:
         # If file is new
-        logger.info("Created file: %s (+%d lines)", path, new_lines)
+        logger.info("Created file: %s (+%d lines)", path, lines_added)
 
+    # Create the FileWriteResult
+    result = FileWriteResult(
+        path=path,
+        content=content,
+        lines_added=lines_added,
+        lines_deleted=lines_deleted,
+        file_existed=file_existed,
+        diff=diff_text
+    )
 
     # If we have lint warnings, handle based on strict mode
     if lint_warnings:
         # Build a more informative error message
         error_msg = [
-            "File updated successfully, but linting failed for {}:".format(path),
+            f"File updated successfully, but linting failed for {path}:",
             "",
             "Linting errors:",
-            "{}".format(lint_warnings),
+            f"{lint_warnings}",
             "",
             "Note: The file has been written despite linting errors.",
             "Please fix the issues and update the file again."
@@ -279,8 +336,37 @@ def overwrite(  # pylint: disable=unused-argument
         # Always raise an error for lint failures
         raise RuntimeError("\n".join(error_msg))
 
+    return result
 
-    return True, lines_added, lines_deleted
+
+def overwrite(  # pylint: disable=unused-argument
+    workspace: str, path: str, content: str, enable_lint: bool = True  # Kept for API compatibility, lint is always checked
+) -> Tuple[bool, int, int]:
+    """
+    Creates a new file or completely overwrites an existing file's content.
+    
+    Legacy function - use write() instead as it provides more comprehensive results including diffs.
+
+    Args:
+        workspace: Root workspace directory path
+        path: Path to the file, relative to workspace
+        content: New content for the file
+        enable_lint: Whether to fail on linting errors (default: True)
+
+    Returns:
+        Tuple of (success, lines_added, lines_deleted)
+
+    Raises:
+        Various exceptions related to file operations
+        RuntimeError: If linting fails and strict=True
+    """
+    # Call the new write function and convert the result to the legacy format
+    try:
+        result = write(workspace, path, content, enable_lint)
+        return True, result.lines_added, result.lines_deleted
+    except Exception as e:
+        # Preserve original exception behavior
+        raise
 
 
 

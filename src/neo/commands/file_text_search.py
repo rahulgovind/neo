@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional, List
 
 from src.neo.commands.base import Command
 from src.neo.exceptions import FatalError
-from src.neo.core.messages import CommandResult
+from src.neo.core.messages import CommandResult, CommandOutput
 from src.neo.session import Session
 from src.utils.subprocess import run_shell_command
 
@@ -225,11 +225,29 @@ class FileTextSearch(Command):
                     
                 case_info = " (case-insensitive)" if args.ignore_case else ""
                 summary = f"Found {match_count} matches for '{pattern}' in {search_path_display}{file_pattern_info}{case_info}"
-                return CommandResult(content=result, success=True, summary=summary)
-            elif process.returncode == 1:
-                summary = f"No matches found for '{pattern}'"
+                
+                # Create message for CommandOutput
+                command_msg = f"Search for text '{pattern}' in {search_path_display}"
+                if include_patterns:
+                    command_msg += f" in files matching {', '.join(include_patterns)}"
+                if args.ignore_case:
+                    command_msg += " (case-insensitive)"
+                
+                # Create CommandOutput
+                command_output = CommandOutput(
+                    name=self.name,
+                    message=command_msg
+                )
+                
                 return CommandResult(
-                    content="No matches found.", success=True, summary=summary
+                    content=result, 
+                    success=True, 
+                    command_output=command_output
+                )
+            elif process.returncode == 1:
+                # No matches found - success but empty result
+                return CommandResult(
+                    content="No matches found.", success=True
                 )
             else:
                 # Other error occurred

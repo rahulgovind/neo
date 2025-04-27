@@ -9,7 +9,7 @@ from textwrap import dedent
 from typing import Optional
 
 from src.neo.commands.base import Command
-from src.neo.core.messages import CommandResult
+from src.neo.core.messages import CommandResult, CommandOutput
 from src.neo.session import Session
 
 # Configure logging
@@ -87,8 +87,15 @@ class WaitCommand(Command):
 
         # Sleep for the specified duration using session clock
         session.clock.sleep(duration)
+        
+        # Create command output with structured information
+        command_output = CommandOutput(
+            name="wait",
+            message=f"Waited for {duration} seconds"
+        )
 
         return CommandResult(
             content=f"Waited for {duration} seconds",
-            success=True
+            success=True,
+            command_output=command_output
         )

@@ -224,7 +224,13 @@ class Shell:
         """
         try:
             command = self._get_command(command_name)
-            return command.execute(self._session, statement, data)
+            logger.debug(f"Executing command '{command_name}' with: {statement}")
+            result = command.execute(self._session, statement, data)
+            
+            # Add command_call to the result
+            result.command_call = ParsedCommand(command_name, statement, data)
+            
+            return result
         except Exception as e:
             logger.error(f"Error executing command {command_name}: {str(e)}")
             return CommandResult(content=str(e), success=False, error=e)
