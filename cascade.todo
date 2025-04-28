@@ -1,0 +1,56 @@
+# Cascade ToDo Items
+
+## LSP Implementation Simplification
+- [x] **Installer Simplification** (Last updated at: Apr 25, 11:30 PM)
+  - [x] Remove TypeScript/JavaScript-specific installation code
+  - [x] Remove installer CLI functionality
+  - [x] Focus on Python LSP server installation check only
+
+- [x] **Server Simplification** (Last updated at: Apr 25, 11:30 PM)
+  - [x] Remove support for languages other than Python
+  - [x] Simplify TCP proxy implementation
+  - [x] Replace complex nested proxy server functions with a simpler architecture
+
+- [x] **Client Simplification** (Last updated at: Apr 25, 11:30 PM)
+  - [x] Focus on core features (initialization, hover, definition)
+  - [x] Simplify response type handling
+  - [x] Improve initialization timeout handling
+
+## LSP Enhancements
+- [x] Add proper progress notification logging (Last updated at: Apr 25, 11:30 PM)
+- [x] Add support for textDocument.references (Last updated at: Apr 25, 11:30 PM)
+- [x] Improve error handling to propagate errors properly (Last updated at: Apr 25, 11:30 PM)
+- [x] Fix resource warnings in LSP server cleanup (Last updated at: Apr 25, 11:30 PM)
+- [ ] Add configurability option for timeout values (Last updated at: Apr 25, 11:30 PM)
+
+## Testing
+- [x] Create simplified test cases for LSP functionality (Last updated at: Apr 25, 11:30 PM)
+- [x] Ensure tests pass with simplified implementation (Last updated at: Apr 25, 11:30 PM)
+- [x] Move LSP tests to tests/lsp/ directory (Last updated at: Apr 25, 11:30 PM)
+- [x] Add tests for definition lookup (Last updated at: Apr 25, 11:30 PM)
+- [x] Add tests for reference lookup (Last updated at: Apr 25, 11:30 PM)
+- [x] Add real-world codebase tests (Flask) (Last updated at: Apr 25, 11:30 PM)
+- [x] Make tests more robust with proper response handling (Last updated at: Apr 25, 11:30 PM)
+- [x] Update tests to use structured data classes (Last updated at: Apr 26, 7:33 PM)
+  - [x] Add specific value validations for hover responses
+  - [x] Add specific value validations for definition responses
+  - [x] Add specific value validations for references responses
+  - [x] Improve error handling test cases
+- [x] Fix line number handling in LSP client (Last updated at: Apr 26, 9:01 PM)
+  - [x] Convert between one-indexed (user) and zero-indexed (LSP) line numbers
+  - [x] Add detailed logging for easier debugging
+  - [x] Update tests to use correct one-indexed line numbers
+- [x] Clean up LSP test files (Last updated at: Apr 28, 9:31 AM)
+  - [x] Remove old LSP test files from project root
+  - [x] Hard-code Flask commit SHA in tests to avoid dependency on ~/flask directory
+  - [x] Fix tests to work without did_open/register_file_uri methods
+  - [x] Fix pytest warnings by properly structuring test functions
+  - [x] Improve test resilience to handle connection failures without skipping
+- [ ] Add more robust connection/timeout handling tests (Last updated at: Apr 25, 11:30 PM)
+
+## Documentation
+- [x] Document updated LSP architecture (Last updated at: Apr 25, 11:30 PM)
+- [x] Document required environment setup (Last updated at: Apr 25, 11:30 PM)
+- [x] Create LSP directory README with usage information (Last updated at: Apr 25, 11:30 PM)
+
+## Last Updated: Apr 28, 9:31 AM
