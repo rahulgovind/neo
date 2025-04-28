@@ -26,7 +26,7 @@ class ReadFileArgs:
     """Structured arguments for read_file command."""
     path: str
     no_line_numbers: bool = False
-    limit: int = 200
+    limit: int = 600
     from_: Optional[int] = None
     until_: Optional[int] = None
 
@@ -62,7 +62,7 @@ class ReadFileCommand(Command):
         # Add arguments
         parser.add_argument("path", help="Path to the file to read")
         parser.add_argument("--no-line-numbers", action="store_true", help="Exclude line numbers from output")
-        parser.add_argument("--limit", type=int, default=200, help="Maximum number of lines to display")
+        parser.add_argument("--limit", type=int, default=600, help="Maximum number of lines to display")
         parser.add_argument("--from", dest="from_", type=int, help="First line to read (1-indexed)")
         parser.add_argument("--until", dest="until_", type=int, help="Last line to read (inclusive)")
         
@@ -100,7 +100,7 @@ class ReadFileCommand(Command):
             - PATH: Path to the file to read
             - from: First line to read (1-indexed). Negative values count from the end.
             - until: Last line to read (inclusive). Negative values count from the end.
-            - limit: Maximum number of lines to display. Default: 200
+            - limit: Maximum number of lines to display. Default: 600
             
             Examples:
             

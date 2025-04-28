@@ -1,73 +1,173 @@
-# Neo Web Chat
+# Web Application
 
-A web-based interface for Neo that implements the same functionality as the CLI-based chat system. This web application allows users to interact with the Neo agent through a modern web UI while maintaining all the capabilities of the command-line version.
+## Overview
+
+The Neo web application provides a browser-based interface for interacting with Neo. It offers a modern chat experience with session management, Markdown rendering, and a responsive design that works on both desktop and mobile devices.
+
+## Key Components
+
+### App (`app.py`)
+
+The Flask application that serves the web interface:
+
+- Defines API routes and view functions
+- Manages the Neo service integration
+- Handles session management via Flask sessions
+- Provides real-time message processing
+
+### Web Server
+
+Built on Flask with additional components:
+
+- HTTP server with websocket support
+- JSON API endpoints for messaging
+- Static file serving for frontend assets
+- Session cookie management
+
+### Frontend
+
+Modern JavaScript application:
+
+- **HTML Templates**: Jinja2 templates for page structure
+- **CSS Styling**: Clean, responsive design
+- **JavaScript**: Interactive chat functionality
+- **Components**: Modular UI elements
+- **Utilities**: Helper functions for UI operations
 
 ## Features
 
-- Browser-based chat interface with Neo agent
-- Markdown rendering for chat messages
-- Command execution and result display
-- Persistent chat history using SQLite
-- Multiple chat sessions management
-- Responsive design for desktop and mobile
+### Chat Interface
 
-## Installation
+A rich, interactive chat experience:
 
-1. Make sure you have Python 3.8+ installed
-2. Install the required dependencies:
+- Real-time message display
+- Markdown rendering for rich text
+- Code syntax highlighting
+- Command execution visualization
+- Conversation history browsing
 
-```bash
-pip install -r requirements.txt
+### Session Management
+
+Comprehensive session handling:
+
+- Create new chat sessions
+- Switch between existing sessions
+- Rename and delete sessions
+- Session persistence across browser sessions
+- Last active session restoration
+
+### Responsive Design
+
+Works on various devices and screen sizes:
+
+- Mobile-friendly interface
+- Desktop optimization
+- Dynamic layout adjustments
+- Touch and click interactions
+- Accessible interface elements
+
+## Directory Structure
+
 ```
+src/apps/web/
+├── app.py              # Flask application
+├── launcher.py         # Entry point script
+├── static/             # Static assets
+│   ├── css/            # Stylesheets
+│   │   └── style.css   # Main CSS file
+│   ├── js/             # JavaScript
+│   │   ├── chat.js     # Chat functionality
+│   │   ├── components/ # UI components
+│   │   └── utils/      # Helper functions
+│   └── img/            # Images
+└── templates/          # HTML templates
+    ├── base.html       # Base template
+    ├── index.html      # Main chat interface
+    └── components/     # Reusable HTML components
+```
+
+## API Endpoints
+
+The web application exposes these key endpoints:
+
+- **`/`**: Main chat interface
+- **`/api/sessions`**: List, create, and manage sessions
+- **`/api/messages`**: Send and receive messages
+- **`/api/message/<id>`**: Get specific message details
+- **`/api/session/<id>`**: Get session details or switch sessions
+
+## Integration Points
+
+- **Service**: The web app uses the Neo service for core functionality
+- **Agent**: Indirectly accessed through the service layer
+- **Session**: Manages user sessions separate from Flask sessions
+- **Database**: Accessed through the service layer for persistence
 
 ## Usage
 
-To start the web application:
+Start the web server with the following command:
 
 ```bash
-python app.py [--host HOST] [--port PORT] [--debug] [--workspace PATH]
+python -m src.apps.web.app [--host HOST] [--port PORT] [--debug] [--workspace PATH]
 ```
 
 Options:
 - `--host`: Host to run the server on (default: 127.0.0.1)
-- `--port`: Port to run the server on (default: 5000)
+- `--port`: Port to run the server on (default: 8888)
 - `--debug`: Run in debug mode
 - `--workspace`: Path to the workspace directory
 
-## Architecture
+## Frontend Development
 
-The application uses:
-- **Flask**: Web framework for serving the application
-- **SQLite**: Database for storing chat history
-- **Marked.js**: Client-side Markdown rendering
-- **Highlight.js**: Code syntax highlighting
+The frontend uses a modular JavaScript approach:
 
-## Database Schema
+```javascript
+// Example: Creating a new message component
+function createMessageElement(message, role) {
+    const msgElement = document.createElement('div');
+    msgElement.className = `message ${role}`;
+    
+    const contentElement = document.createElement('div');
+    contentElement.className = 'content';
+    contentElement.innerHTML = marked.parse(message);
+    
+    msgElement.appendChild(contentElement);
+    return msgElement;
+}
 
-The database includes two main tables:
-1. **sessions**: Stores chat session information
-   - `id`: Unique session identifier
-   - `workspace`: Associated workspace path
-   - `created_at`: Creation timestamp
-   - `last_active`: Last activity timestamp
+// Example: Sending a message
+async function sendMessage(content) {
+    try {
+        const response = await fetch('/api/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                content: content,
+                session_id: currentSessionId
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to send message');
+        }
+        
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('Error sending message:', error);
+        throw error;
+    }
+}
+```
 
-2. **messages**: Stores individual messages
-   - `id`: Message identifier
-   - `session_id`: Associated session
-   - `role`: Message sender (user/assistant)
-   - `content`: Message content
-   - `timestamp`: Message timestamp
+## Future Considerations
 
-## Technology Stack
-
-- **Backend**: Python with Flask
-- **Database**: SQLite
-- **Frontend**: HTML, CSS, JavaScript
-- **Libraries**: Marked.js, Highlight.js, Font Awesome
-
-## Integration with Neo
-
-This web application integrates with the existing Neo architecture:
-- Uses the same `Agent` class for message processing
-- Maintains compatibility with the command execution system
-- Preserves the same interaction model but through a web interface
+- **User Authentication**: Login system for multi-user support
+- **Real-time Collaboration**: Shared sessions between users
+- **Enhanced UI**: Additional visualization tools
+- **File Upload**: Direct file upload capabilities
+- **Theme Support**: Light and dark mode options
+- **Notifications**: System for alerts and notifications
+- **Export/Import**: Conversation export and import functionality

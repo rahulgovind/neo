@@ -18,67 +18,39 @@ The application uses the OpenAI API format for LLM interactions, which allows it
 Neo follows a layered architecture with clear separation of concerns:
 
 ```
-┌─────────────────┐
-│      CLI        │  Command-line interface and application entry point
-└────────┬────────┘
-          │
-          ▼
-┌─────────────────┐
-│      Chat       │  Interactive user interface and session management
-└────────┬────────┘
-          │
-          ▼
-┌─────────────────┐
-│      Agent      │  Orchestrates LLM interactions and function execution
-└────────┬────────┘
-          │
-          ▼
-┌─────────────────┐                 ┌─────────────────┐
-│      Model      │◄────────────────│   Functions     │
-└─────────────────┘                 └─────────────────┘
-  LLM interaction                      File operations
+┌─────────────────┐     ┌─────────────────┐
+│      CLI        │     │      Web        │  Application entry points
+└────────┬────────┘     └────────┬────────┘
+         │                       │
+         └───────────┬───────────┘
+                     │
+                     ▼
+┌─────────────────────────────────┐
+│           Service               │  Session management and persistence
+└────────────────┬────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────┐
+│            Agent                │  Orchestrates conversation and commands
+└────────┬──────────────┬─────────┘
+         │              │
+         ▼              ▼
+┌─────────────┐  ┌─────────────────┐
+│   Client    │  │      Shell      │
+└──────┬──────┘  └────────┬────────┘
+       │                  │
+       ▼                  ▼
+┌─────────────┐  ┌─────────────────┐
+│    LLM      │  │    Commands     │
+└─────────────┘  └─────────────────┘
+                        │
+                        ▼
+              ┌─────────────────────┐
+              │  Message Structure  │  Content blocks for different data types
+              └─────────────────────┘
 ```
 
 ### Key Components
-
-#### Client (src/neo/client/)
-
-The Client component provides a robust abstraction over LLM services:
-
-**Client** (`src/neo/client/client.py`):
-
-- Orchestrates the communication flow with the LLM
-- Preprocesses messages to ensure proper formatting
-- Postprocesses responses to extract command calls and text blocks
-- Performs command validation before execution
-- Handles error recovery with feedback loops for invalid commands
-- Transforms responses into structured Message objects with content blocks
-
-**BaseClient** (`src/neo/client/base.py`):
-
-- Core LLM API client implementation
-- Handles API authentication and request management
-- Implements comprehensive request/response logging with structured data
-- Manages token counting and usage tracking
-- Handles API-specific adaptations for different providers
-- Implements error handling and retry logic
-
-Key features:
-- Uses OpenAI's Chat Completions API format for broad compatibility
-- Supports structured metadata in requests and responses
-- Implements automatic validation and retries for failed command calls
-- Provides detailed logging of request/response pairs
-- Manages conversation caching with ephemeral message control
-- Supports structured output with validation
-
-**BaseClient** (`src/neo/client/base.py`):
-
-- Provides low-level communication with the LLM API
-- Abstracts OpenAI-compatible API interactions
-- Handles authentication and API configuration
-- Implements comprehensive logging of requests and responses
-- Calculates token usage and manages rate limits
-- Includes error handling and retry logic
 
 #### Client (src/neo/client/)
 
@@ -89,15 +61,12 @@ The Client component provides a robust abstraction over LLM API interactions:
 - Validates command calls before execution
 - Manages message preprocessing and response postprocessing
 - Automatically corrects and retries invalid command calls
-- Uses a structured logging system for tracking requests and responses
 
 **BaseClient** (`src/neo/client/base.py`):
 - Provides low-level communication with LLM APIs
 - Implements OpenAI API format compatibility
 - Performs token counting and usage tracking
-- Includes detailed request/response logging
-- Handles error conditions gracefully
-- Supports configurable model selection
+- Handles authentication and request/response management
 
 **Key Features**:
 - **Unified API Format**: Works with both OpenAI and compatible API providers
@@ -106,152 +75,102 @@ The Client component provides a robust abstraction over LLM API interactions:
 - **Token Usage Tracking**: Monitors token consumption for both prompts and completions
 - **Command Validation**: Pre-validates command calls before execution to prevent errors
 
-#### Model (src/core/model.py)
+#### Message Structure (src/neo/core/messages.py)
 
-The Model component builds on the Client to provide higher-level LLM interaction:
+Neo uses a sophisticated message structure to handle different content types and conversation flows:
+
+**Message** class:
+- Container for conversation messages (user, assistant, system)
+- Supports rich content through various `ContentBlock` types
+- Handles metadata for message processing and caching
+- Provides serialization/deserialization for persistence
+
+**ContentBlock** implementations:
+- **TextBlock**: Plain text content for normal conversation
+- **CommandCall**: Represents command execution requests
+- **CommandResult**: Contains command execution results with success/failure status
+- **StructuredOutput**: Formatted, schema-validated output data
+
+**Key Features**:
+- Support for mixed content types in a single message
+- Special handling for system-level communications
+- Command execution parsing and processing
+- Error handling and recovery mechanisms
 
 
-- Manages communication with the LLM using the OpenAI API format
-- Handles message preprocessing and response postprocessing
-- Processes commands and their results through the LLM
-- Supports auto-execution of multiple commands in sequence
-- Extracts command calls from LLM responses
+#### Shell (src/neo/shell/)
+
+The Shell component manages command execution and validation:
+
+**Shell** (`src/neo/shell/shell.py`):
+- Maintains registry of available commands
+- Processes and validates command calls
+- Handles command execution and result formatting
+- Provides command documentation through describe() method
+- Manages persistent shell sessions for terminal operations
 
 #### Commands (src/neo/commands/)
 
 Neo implements a consistent command framework for interacting with the file system and other resources:
 
-- Base `Command` class (src/neo/shell/command.py) provides a unified interface for all commands
-- Commands use a consistent CLI-like syntax for parameter handling
-- Each command includes rich documentation and usage examples with formatted terminal display
-- Commands provide structured error handling for reliable execution
-- Parameter processing supports both positional and flag arguments with fully declarative definitions
+**Command Framework**:
+- Base `Command` class provides a unified interface with CLI-like syntax
+- Declarative parameter definitions with validation (positional and flag arguments)
+- Structured error handling and reporting
+- Command execution returns CommandResult with success status and content
+- Rich documentation with usage examples for each command
 
-Available commands include:
+**File Operations**:
+- **`read_file`**: Read file contents with line selection and formatting options
+- **`write_file`**: Create or overwrite files with automatic directory creation
+- **`update_file`**: Apply structured diffs with @UPDATE/@DELETE operations
 
-- **`read_file`** (ReadFileCommand): Read and display file contents with the following features:
-  - Line number display with toggle option (--no-line-numbers)
-  - Flexible line range selection (--from, --until)
-  - Output limiting with configurable maximum lines (--limit)
-  - Support for negative indices to count from end of file
-  - Special handling for NEO_HOME directory access
-  - Workspace-aware path resolution for security
-  - Graceful error handling for common file access issues
+**Search Operations**:
+- **`file_text_search`**: Search file contents with pattern matching and context display
+- **`file_path_search`**: Find files based on patterns, types, and content filters
 
-- **`write_file`** (WriteFileCommand): Create or overwrite files with provided content:
-  - Automatic parent directory creation when needed
-  - Support for relative and absolute paths within workspace
-  - Returns line addition/deletion statistics and success status
-  - Workspace-aware path handling for security
-  - Optional linting support for code files
+**Shell Operations**:
+- **`shell_run`**: Execute shell commands in managed environment
+- **`shell_view`**: Access shell output from previous commands
+- **`shell_write`**: Send input to active shell processes
 
-- **`update_file`** (UpdateFileCommand): Apply changes to files using a structured diff syntax:
-  - Supports multiple operation types (@UPDATE, @DELETE)
-  - Sequential application of diff chunks from top to bottom
-  - @@BEFORE and @@AFTER subsections for defining changes
-  - Model-assisted fallback for complex changes (with optional disable flag)
-  - Detailed error reporting and recovery mechanisms
-  - Preserves file formatting and style
+**Utility Commands**:
+- **`wait`**: Sleep for specified duration using session clock
+- **`output`**: Format structured data in various output formats
 
-- **`neogrep`** (NeoGrepCommand): Search for patterns in files:
-  - Delegates to the system grep command for efficient searching
-  - Case-sensitive and case-insensitive searching (-i/--ignore-case)
-  - File pattern filtering to limit search scope (-f/--file-pattern)
-  - Context line display around matches (-C/--context)
-  - Workspace-aware path resolution
-  - Clean and structured output format
-
-- **`neofind`** (NeoFindCommand): Locate files and directories:
-  - Delegates to the system find command for efficient searching
-  - Name pattern filtering (-n/--name)
-  - File type filtering for files or directories (-t/--type)
-  - Workspace-aware search paths for security
-  - Comprehensive error handling and reporting
-
-- **`bash`** (BashCommand): Execute arbitrary shell commands as a fallback:
-  - Maintains a persistent shell session across command invocations
-  - Captures both standard output and error streams
-  - Exit code capture for proper error reporting
-  - Graceful handling of shell termination and error conditions
-  - Special handling for exit command
-  - Workspace-aware execution environment
-  - Should only be used when specialized commands are insufficient
-
-- **`output`** (StructuredOutputCommand): Validate and structure command output data:
-  - Used for outputting structured data in various formats
-  - Supports raw text output for code snippets
-  - Supports JSON schema validation for complex data structures
-  - Provides examples in documentation for different output formats
-  - Primarily designed for internal use by the LLM
-
-The command architecture follows these design principles:
-- **Command Pattern**: Each command implements:
-  - A `template()` method that returns a CommandTemplate with parameters and documentation
-  - A `process()` method that takes session/context, args, and optional data parameters
-  - Returns a CommandResult with content, success status, and operation summary
-
-The command framework also provides:
-- **CommandParameter**: Dataclass for defining command parameters with validation
-  - Support for required vs. optional parameters
-  - Positional parameters and flag arguments (-f, --flag)
-  - Default values and hidden parameter options
-
-- **CommandTemplate**: Defines a command's structure and documentation
-  - Generates formatted manual pages with NAME, SYNOPSIS, DESCRIPTION sections
-  - Provides consistent OPTIONS and EXAMPLES documentation
-  - Supports command data input via STDIN-like pipe syntax
-
-- **CommandParser**: Handles parsing of command strings into structured arguments
-  - Processes arguments based on parameter definitions
-  - Handles quoted values and special characters
-  - Separates command arguments from piped data
-- **Consistent Command Interface**: All commands follow a unified model with CLI-like syntax
-- **Rich Documentation**: Documentation includes descriptions, parameter details, and interactive examples
-- **Robust Error Handling**: Commands provide detailed error feedback to users and system components
-- **Workspace Awareness**: Commands respect workspace boundaries for security
+**Design Principles**:
+- **Workspace Security**: All file operations are workspace-aware for security
+- **Command Pattern**: Consistent interface with template() and process() methods
+- **Rich Feedback**: Detailed success/error information and operation statistics
+- **Composability**: Commands can be combined through the Agent for complex operations
 
 #### Agent (src/neo/agent/)
 
-The Agent component orchestrates the interaction between the user, Model, and Functions through a modular architecture:
+The Agent component orchestrates conversations and command execution:
 
-**Agent** (`src/neo/agent/agent.py`):
+**Core Components**:
+- **Agent** (`src/neo/agent/agent.py`): Conversation lifecycle manager that:
+  - Loads system instructions and custom rules (.neorules)
+  - Processes user messages through the state machine
+  - Supports both ephemeral and persistent conversation modes
 
-- Core orchestration class that manages the conversation lifecycle
-- Loads and provides system instructions and custom rules (from .neorules)
-- Processes user messages and returns assistant responses
-- Integrates with the session to persist conversation state
-- Handles command execution through the Agent State Machine
-- Supports both ephemeral (non-persistent) and persistent conversation modes
+- **AgentState** (`src/neo/agent/state.py`): Immutable conversation state container that:
+  - Manages message history with functional update patterns
+  - Provides serialization for persistence
+  - Supports turn-based conversation structures
 
-**AgentState** (`src/neo/agent/state.py`):
-
-- Manages the conversation state with immutable data structures
-- Stores system instructions and the message history
-- Provides methods for adding messages and manipulating state
-- Implements serialization logic for saving/loading conversation state
-- Supports message pruning to manage context length
-- Includes utilities for turn-based conversation management
-
-**AgentStateMachine** (`src/neo/agent/asm.py`):
-
-- Implements a stateless state machine for processing agent interactions
-- Provides the primary stepping logic for advancing conversations
-- Manages command execution flow and result handling
-- Creates intelligent checkpoints to summarize conversation history
-- Implements state pruning to handle long conversations
-- Uses configurable thresholds for checkpoint intervals and pruning
+- **AgentStateMachine** (`src/neo/agent/asm.py`): Stateless processor that:
+  - Advances conversation with step() method
+  - Creates intelligent checkpoints for context summarization
+  - Prunes older messages to manage context length
+  - Handles command execution flow and results
 
 **Key Features**:
-
-- **Hierarchical Memory Management**: Implements a sophisticated approach to context retention:
-  - Automatic checkpointing of conversations at configurable intervals
-  - Generation of conversation summaries to preserve context
-  - Smart pruning of older messages while maintaining coherence
-  - Configurable thresholds for managing context window size
-
-- **Stateless Processing**: The state machine provides a clean, functional approach to state transitions
-- **Immutable State**: All state operations return new state objects rather than modifying existing state
-- **Conversation Persistence**: Optional saving and loading of conversations across sessions
+- **Hierarchical Memory Management**: Sophisticated context retention with automatic checkpointing
+- **Stateless Processing**: Clean, functional approach to state transitions
+- **Immutable State**: State operations return new objects rather than modifying existing state
+- **Conversation Persistence**: Optional saving/loading of conversations across sessions
+- **Custom Rules**: Support for project-specific customization via .neorules files
 
 #### Service (src/neo/service/)
 
@@ -318,139 +237,65 @@ Neo integrates code quality checks directly into file operations:
 
 ## Future Considerations
 
-### Potential Improvements
+**Interface Enhancements**:
+- IDE Integration: Plugins for VSCode, JetBrains, and other popular editors
+- Collaborative Features: Multi-user support with shared sessions
 
-1. **Web Interface**: Add a web-based UI as an alternative to the terminal interface
-2. **Project Templates**: Support for project-specific templates and configurations
-3. **IDE Integration**: Extensions for popular IDEs like VSCode or JetBrains
-4. **Collaborative Mode**: Support for multiple users working with the same assistant
-5. **Version Control Integration**: Direct integration with Git for tracking changes
+**Core Functionality**:
+- Enhanced File Diffing: Better visualization and application of complex changes
+- Version Control Integration: Direct Git integration for change tracking
+- Advanced Checkpoint Management: More sophisticated conversation summarization
+
+**Architecture Extensions**:
+- Project Templates: Support for project-specific configurations
+- Command Framework Extensions: Specialized commands for additional operations
+- Message Structure Extensions: Support for rich content types (charts, diagrams)
 
 ### Service Layer (src/neo/service/)
 
 The Service Layer provides persistent session management and a programming interface for Neo:
 
 **Service** (`src/neo/service/service.py`):
-
 - Provides the primary API for programmatic interaction with Neo
 - Exposes methods for session creation, retrieval and messaging
-- Manages messaging workflow for non-interactive components
-- Handles ephemeral and persistent session states
-- Abstracts the session management complexity for API consumers
+- Processes messages through the appropriate agent
+- Supports both ephemeral and persistent session states
 
 **SessionManager** (`src/neo/service/session_manager.py`):
-
 - Core implementation for session state management
-- Manages session creation, retrieval, and updates
-- Handles session persistence through the database layer
+- Maps session names to unique session IDs
 - Tracks temporary and permanent sessions
-- Provides access to last active and recently created sessions
-- Implements session workspace configuration
+- Maintains last active session information
+- Handles workspace configuration for sessions
 
 **Database** (`src/neo/service/database/`):
-
 - Implements SQLite-based persistence for sessions
 - Provides repositories for session data access
 - Manages database connections and schema
-- Implements data models for session state
+- Automatic schema creation and migration
 
-Key features:
-- Separation of API, business logic, and data access layers
-- Support for both temporary and persistent sessions
-- Workspace-aware session management
+**Key Features**:
+- Supports both CLI and web/API interfaces with consistent programming model
+- Workspace-aware session management with security boundaries
+- Database-backed session persistence for continuous conversations
 - Unique session identification with names and IDs
-- Database-backed session persistence
-- Enables seamless interaction with both temporary and persistent sessions
-- Abstracts away implementation details for application integrations
 
-**SessionManager** (`src/neo/service/session_manager.py`):
-
-- Manages the lifecycle of sessions in the application
-- Provides session creation, retrieval and update operations
-- Handles persistence through the repository pattern
-- Tracks and manages temporary vs. permanent sessions
-- Maintains session state across application restarts
-
-**Database** (`src/neo/service/database/`):
-
-- Implements repository pattern for session persistence
-- Uses SQLite for efficient local data storage
-- Provides data models for session state
-- Manages connection pooling and database operations
-- Enables scalable, persistent session tracking
-
-The Service Layer is designed to support both CLI and potential web/API interfaces, providing a consistent programming model regardless of the interface being used.
-
-**Testing the Service Layer**:
-
-Testing the Service layer requires special considerations due to:
-- Global state in the NEO_HOME variable defined at import time
-- Database connections established when modules are imported
-- Session IDs based on timestamps with potential for conflicts in test suites
-
-We've implemented two testing strategies:
-- Traditional unit tests with setUp/tearDown for normal isolation
-- A standalone isolated script that guarantees complete isolation by setting environment variables before any imports
-
-Key insights for testing this layer:
-- NEO_HOME must be set before importing any Neo-related modules for true isolation
-- Each test should use a unique database file to avoid conflicts
-- The Service.list_sessions() method returns List[SessionInfo], which has been fixed to match its implementation 
-- Comprehensive test coverage uses real (non-mocked) objects for higher fidelity
-
-
-
-
-The Service layer provides a higher-level API for session management and persistent storage:
-
-- **Service** (src/neo/service/service.py): Provides core service functionalities for session management and messaging
-  - Creates and manages sessions with persistent state
-  - Processes messages through the appropriate agent
-  - Supports temporary and named sessions
-  - Provides session listing and retrieval capabilities
-
-- **SessionManager** (src/neo/service/session_manager.py): Manages session state persistence
-  - Maps session names to session IDs
-  - Tracks temporary and permanent sessions
-  - Provides session creation, retrieval, and listing
-  - Maintains last active session information
-
-- **Database** (src/neo/service/database/): Implements persistent storage for sessions
-  - Uses SQLite for storing session metadata
-  - SessionRepository provides CRUD operations for sessions
-  - Implements connection pooling with singleton pattern
-  - Automatic schema creation and migration
+**Testing Considerations**:
+- Special handling for NEO_HOME global state
+- Isolation techniques for database connections
+- Strategies for timestamp-based session ID conflicts
 
 ### Additional Components
 
-The project includes several components not detailed above:
+**Utilities** (src/neo/utils/):
+- **Clock** (`src/neo/utils/clock.py`): Time-related operations with two implementations:
+  - `RealTimeClock`: Wraps Python's time module for production use
+  - `FakeClock`: Simulates time passage for deterministic testing
 
-#### 1. Utilities (src/neo/utils/)
+**Web Application** (src/apps/web/):
+- Provides browser-based interface as alternative to CLI
+- Shares core functionality with CLI through Service Layer
 
-Neo includes utility components that provide core functionality used across the application:
-
-**Clock** (`src/neo/utils/clock.py`): Provides time-related operations and abstractions
-- Abstract `Clock` interface defines a consistent API for time operations
-- `RealTimeClock` implementation uses actual system time
-- `FakeClock` implementation simulates time passage for testing
-  - Allows advancing time without waiting for real time to pass
-  - Supports concurrent testing with thread synchronization
-  - Includes utilities for test coordination with `await_sleeps`
-
-#### 2. Web Application (src/apps/web/)
-
-Neo includes a web-based interface as an alternative to the terminal:
-- `app.py`: Implements the web server and routes
-- `launcher.py`: Provides entry points for starting the web application
-
-#### 2. Database (src/database/)
-
-A database component for persistent storage:
-- Supports storing conversation history and context between sessions
-- Provides data access abstractions for the rest of the application
-
-#### 3. Structured Logging (src/logging/)
-
-A dedicated logging infrastructure:
-- Implements structured logging for better analysis
-- Provides consistent log formatting across the application
+**Structured Logging** (src/logging/):
+- Implements detailed, structured logging for requests and operations
+- Enables analysis of model performance and application behavior
