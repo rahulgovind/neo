@@ -1,0 +1,34 @@
+{
+  "name": "neo-web-chat",
+  "version": "1.0.0",
+  "description": "Neo Web Chat Application with React",
+  "main": "index.js",
+  "scripts": {
+    "build": "webpack --mode production",
+    "dev": "webpack --mode development --watch",
+    "serve": "webpack-dev-server --mode development --open",
+    "start": "npm run build && python -m flask run"
+  },
+  "keywords": [
+    "neo",
+    "chat",
+    "react"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@types/react": "^19.0.12",
+    "@types/react-dom": "^19.0.4",
+    "css-loader": "^7.1.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.5.2",
+    "typescript": "^5.8.2",
+    "webpack": "^5.98.0",
+    "webpack-cli": "^6.0.1"
+  },
+  "devDependencies": {
+    "webpack-dev-server": "^5.2.1"
+  }
+}

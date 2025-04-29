@@ -1,0 +1,809 @@
+/* Main Application Styles
+ * 
+ * Neo Web Chat uses a flat, minimal dark theme with:
+ * - Background color: rgb(33, 33, 33) for main background
+ * - Message background: rgba(50, 50, 50, 0.85) for a subtle, semi-transparent look
+ * - Text color: #e5e7eb for readability on dark backgrounds
+ * - Border-radius: 1.5rem for message containers for a modern look
+ * - Borders: subtle hsla(0, 0%, 100%, .05) for message containers
+ * - Single page scrollbar with fixed header and input
+ * - Messages right-aligned for user, left-aligned for assistant
+ */
+
+:root {
+  /* Color Variables - Minimal Dark Theme */
+  --bg-color: rgb(33, 33, 33);           /* Main background color */
+  --message-bg-color: rgba(50, 50, 50, 0.85); /* Message background */
+  --message-light-bg: rgba(50, 50, 50, 0.85); /* Same for all messages */
+  --border-color: hsla(0, 0%, 100%, .05);  /* Subtle border color */
+  --text-color: #e5e7eb;                 /* Main text color */
+  --input-bg: rgba(64, 64, 64, 0.9);     /* Input field background */
+  --accent-color: #888888;               /* Neutral accent color */
+  --error-color: rgba(239, 68, 68, 0.8); /* Subtle error color */
+  --success-color: rgba(16, 185, 129, 0.8); /* Subtle success color */
+  
+  /* Dimensions */
+  --sidebar-width: 280px;                /* Width of the sidebar when expanded */
+  --header-height: 60px;                 /* Height of the main header */
+  --footer-height: 40px;                 /* Height of the footer */
+  --message-radius: 1.5rem;              /* Border radius for messages */
+  --input-radius: 28px;                  /* Border radius for input */
+}
+
+/* Sidebar Styling */
+/* Main layout container - wraps sidebar and content area */
+.app-layout {
+  display: flex;
+  min-height: calc(100vh - 60px - 40px); /* Subtract header and footer height */
+  margin-top: 60px; /* Account for fixed header */
+  width: 100%;
+  position: relative;
+}
+
+/* Sidebar panel - contains session navigation */
+.sidebar {
+  background-color: rgba(40, 40, 40, 0.95); /* Slightly darker than main background */
+  width: 280px;
+  min-width: 280px;
+  flex-shrink: 0;
+  border-right: 1px solid #4d4d4f;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s ease;
+  height: 100%;
+  overflow: visible;
+  position: relative;
+  z-index: 10;
+}
+
+/* Collapsed state for sidebar - visually hidden */
+.sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sidebar-toggle-container {
+  position: absolute;
+  right: -15px;
+  top: 80px;
+  z-index: 200; /* Increased to ensure it's always on top */
+  width: 30px;
+  height: 30px;
+  background-color: #0b84fe;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.sidebar-toggle-container:hover {
+  background-color: #0a75e5;
+}
+
+/* Make the toggle button visible regardless of sidebar state */
+.sidebar.collapsed .sidebar-toggle-container {
+  right: auto;
+  left: 15px;
+}
+
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  border-bottom: 1px solid #4d4d4f;
+}
+
+.sidebar-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #e5e7eb;
+}
+
+/* New sidebar toggle in header */
+.sidebar-toggle {
+  background: transparent;
+  border: none;
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-right: 10px;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.sidebar-toggle:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Hide old sidebar toggle when using the header toggle */
+.sidebar-toggle-container {
+  display: none;
+}
+
+/* Content area within sidebar - contains sessions list */
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  color: #e5e7eb;
+}
+
+/* New session button - prominent accent-colored button */
+.new-session-btn {
+  margin: 1rem;
+  padding: 0.5rem 1rem;
+  background-color: rgba(70, 70, 70, 0.9);
+  color: white;
+  text-decoration: none;
+  border-radius: 4px;
+  text-align: center;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: background-color 0.2s;
+}
+
+.new-session-btn:hover {
+  background-color: rgba(90, 90, 90, 0.9);
+}
+
+.sessions-list {
+  padding: 0.5rem;
+  flex: 1;
+  overflow-y: auto;
+  color: #e5e7eb;
+}
+
+.session-item {
+  padding: 0.75rem;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;
+  flex-direction: column;
+  color: #e5e7eb;
+}
+
+.session-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.session-item.active {
+  background-color: rgba(70, 70, 70, 0.4);
+  border-left: 3px solid rgba(100, 100, 100, 0.8);
+}
+
+.session-item-title {
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+  color: #e5e7eb;
+}
+
+.session-item-time {
+  font-size: 0.75rem;
+  color: #a0aec0;
+  margin-bottom: 0.25rem;
+  margin-left: 0.5rem;
+  margin-right: 0.5rem;
+}
+
+.sidebar-loading {
+  padding: 1rem;
+  color: #a0aec0;
+  text-align: center;
+  font-style: italic;
+}
+
+/* Media queries for responsive sidebar */
+@media (max-width: 768px) {
+  .sidebar {
+    position: absolute;
+    z-index: 100;
+    height: calc(100vh - 60px);
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+  }
+}
+
+/* Typing Indicator */
+.typing-indicator {
+  padding: 10px 15px !important;
+  margin-bottom: 8px !important;
+}
+
+/* Improved Log Display */
+.field-value-container {
+  width: 100%;
+}
+
+.field-value-container .full-value,
+.field-value-container .truncated-value {
+  width: 100%;
+}
+
+.field-value-toggle {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  height: 15px;
+}
+
+.typing-dots span {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #a0a0a0;
+  margin-right: 4px;
+  animation: typingBounce 1.4s infinite ease-in-out;
+  opacity: 0.6;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: 0s; }
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+
+/* Root CSS variables are now defined at the top of the file */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Global body styles - font, colors, enables page-level scrolling */
+body {
+  font-family: ui-sans-serif, -apple-system, system-ui, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+  line-height: 1.6;
+  color: var(--text-color);
+  background-color: var(--bg-color);
+  min-height: 100vh;
+  overflow-y: auto;
+}
+
+/* Main container - holds all app components */
+.app-container {
+  display: flex;
+  flex-direction: row;
+  min-height: 100vh;
+  margin-top: 60px;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Header */
+.app-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 11;
+  background-color: var(--bg-color);
+  color: #e5e7eb;
+  padding: 0.75rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.25), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+  min-height: 60px;
+  max-height: 60px;
+}
+
+.logo h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #e5e7eb;
+}
+
+.main-nav ul {
+  display: flex;
+  list-style: none;
+}
+
+.main-nav li {
+  margin-left: 1.5rem;
+}
+
+.main-nav a {
+  color: #e5e7eb;
+  text-decoration: none;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.main-nav a:hover {
+  color: var(--text-color);
+  opacity: 0.8;
+}
+
+.main-nav a.danger {
+  color: var(--error-color);
+}
+
+/* Main Content Area */
+.app-content {
+  flex: 1;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  background-color: var(--bg-color);
+  min-height: calc(100vh - 60px);
+  margin-left: 0;
+  transition: margin-left 0.3s ease;
+  position: relative;
+}
+
+/* Adjust content margin when sidebar is open */
+.app-container:not(.sidebar-collapsed) .app-content {
+  margin-left: 280px;
+}
+
+.app-container .chat-input-container {
+  transition: margin-left 0.3s ease;
+}
+
+.app-container:not(.sidebar-collapsed) .chat-input-container {
+  margin-left: 280px;
+}
+
+/* Container for chat messages - centers content with max-width */
+.chat-centered-container {
+  width: 100%;
+  max-width: 840px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 120px;  /* Space for fixed input */
+}
+
+/* Chat Container */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  background-color: var(--bg-color);
+  overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+  padding-bottom: 90px;
+}
+
+/* Messages container - allows page-level scrolling */
+.chat-messages {
+  overflow-y: visible;
+  padding: 1rem 5%;
+  background-color: var(--bg-color);
+  display: flex;
+  flex-direction: column;
+}
+
+.welcome-message {
+  text-align: center;
+  margin: 2rem 0;
+  color: #e5e7eb;
+  opacity: 0.7;
+}
+
+/* Individual message container - handles alignment */
+.message {
+  width: 100%;
+  display: flex;
+  padding: 0.5rem 0;
+  justify-content: flex-start;
+  margin-bottom: 0.5rem;
+  background-color: transparent;
+}
+
+/* Message content - styling for both user and assistant messages */
+.message-content {
+  padding: 0.75rem 1rem;
+  border-radius: var(--message-radius);
+  border: 1px solid var(--border-color);
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.4;
+  max-width: 80%;
+  overflow-x: hidden;
+  background-color: var(--message-bg-color);
+  color: var(--text-color);
+}
+
+/* User message - right-aligned */
+.message-user {
+  justify-content: flex-end;
+}
+
+/* Assistant message - left-aligned */
+.message-assistant {
+  justify-content: flex-start;
+}
+
+.message-time {
+  font-size: 0.7rem;
+  color: #a0aec0;
+  margin-top: 0.25rem;
+  width: 100%;
+  padding: 0 1rem;
+}
+
+.message-user .message-time {
+  text-align: right;
+}
+
+.message-assistant .message-time {
+  text-align: left;
+}
+
+/* Command Styling */
+.command-block {
+  background-color: #1e293b;
+  color: #e2e8f0;
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin: 0.5rem auto;
+  font-family: monospace;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  width: 80%;
+}
+
+.command-result {
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin: 0.5rem auto;
+  font-family: monospace;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  width: 80%;
+}
+
+/* Success indicator for commands - subtle green accent */
+.command-success {
+  background-color: rgba(16, 185, 129, 0.1);
+  border-left: 3px solid #10b981;
+  color: #e5e7eb;
+}
+
+/* Error indicator for commands - subtle red accent */
+.command-error {
+  background-color: rgba(239, 68, 68, 0.1);
+  border-left: 3px solid #ef4444;
+  color: #e5e7eb;
+}
+
+/* Chat Input */
+.chat-input-container {
+  padding: 1rem;
+  background-color: rgba(33, 33, 33, 0.95);
+  border-top: 1px solid var(--border-color);
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  z-index: 10;
+  box-sizing: border-box;
+  backdrop-filter: blur(5px);
+}
+
+/* Adjust input padding when sidebar is collapsed */
+.sidebar-collapsed ~ .app-content .chat-input-container,
+.sidebar-collapsed .chat-input-container {
+  padding-left: 1rem;
+}
+
+/* Chat form container - holds input and send button */
+#chat-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Text input field - allows multi-line input */
+#user-input {
+  flex: 1;
+  border: 1px solid var(--border-color);
+  border-radius: var(--input-radius);
+  padding: 0.75rem 1rem;
+  resize: none;
+  font-family: inherit;
+  font-size: 0.95rem;
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: var(--input-bg);
+  color: var(--text-color);
+}
+
+#user-input:focus {
+  outline: none;
+  border-color: rgba(100, 100, 100, 0.8);
+  box-shadow: 0 0 0 2px rgba(70, 70, 70, 0.2);
+}
+
+/* Send button - circular button with paper plane icon */
+#send-button {
+  background-color: transparent;
+  color: var(--text-color);
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  cursor: pointer;
+  font-size: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+#send-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Ensure message container doesn't overlap with fixed input */
+.chat-messages {
+  padding-bottom: 120px;
+}
+
+/* Sessions Page */
+.sessions-container {
+  background-color: #343541;
+  border-radius: 8px;
+  padding: 2rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.25), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+}
+
+.sessions-container h2 {
+  margin-bottom: 1.5rem;
+  color: #e5e7eb;
+}
+
+.session-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.session-card {
+  border: 1px solid #4d4d4f;
+  border-radius: 8px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  background-color: #444654;
+}
+
+.session-info h3 {
+  margin-bottom: 0.5rem;
+  color: #e5e7eb;
+}
+
+.session-workspace {
+  font-size: 0.875rem;
+  color: #a0aec0;
+  word-break: break-all;
+}
+
+.session-date {
+  font-size: 0.875rem;
+  color: #a0aec0;
+  margin-top: 0.5rem;
+}
+
+.session-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  text-decoration: none;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background-color: #0b84fe;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #0a75e5;
+}
+
+.btn-success {
+  background-color: #10b981;
+  color: white;
+}
+
+.btn-success:hover {
+  background-color: #059669;
+}
+
+/* Logs Pages Styles */
+.logs-container,
+.log-detail-container {
+  background-color: #343541;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.25), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+}
+
+.logs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.log-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #444654;
+  border: 1px solid #4d4d4f;
+  border-radius: 6px;
+  padding: 1rem;
+  transition: all 0.2s ease;
+}
+
+.log-card:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.25), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+  border-color: var(--accent-color);
+}
+
+.log-info h3 {
+  margin-bottom: 0.5rem;
+  color: #e5e7eb;
+}
+
+.log-size,
+.log-date {
+  font-size: 0.85rem;
+  color: #a0aec0;
+  margin-bottom: 0.25rem;
+}
+
+.log-actions,
+.log-actions-footer {
+  margin-top: 1rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.log-navigation {
+  margin-bottom: 1.5rem;
+}
+
+.no-logs {
+  text-align: center;
+  padding: 2rem;
+  color: #a0aec0;
+  font-style: italic;
+}
+
+.no-sessions {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 2rem;
+  color: #a0aec0;
+}
+
+.session-actions-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+/* Code Block Styling */
+pre {
+  background-color: #f8f8f8;
+  border-radius: 4px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+code {
+  font-family: 'Courier New', Courier, monospace;
+}
+
+/* Footer */
+.app-footer {
+  text-align: center;
+  padding: 0.5rem;
+  background-color: #0f172a;
+  color: white;
+  font-size: 0.75rem;
+  margin-top: auto;
+  min-height: 30px;
+  max-height: 30px;
+}
+
+/* Loading Indicator */
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  color: #a0aec0;
+}
+
+.loading-indicator .spinner {
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-top: 3px solid #0b84fe;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+  margin-right: 0.5rem;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .app-header {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .main-nav ul {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .main-nav li {
+    margin: 0.5rem;
+  }
+  
+  .app-content {
+    padding: 1rem;
+  }
+  
+  .chat-container {
+    height: calc(100vh - 220px);
+  }
+  
+  .session-list {
+    grid-template-columns: 1fr;
+  }
+}

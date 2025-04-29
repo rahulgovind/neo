@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block title %}{{ logger_name }} Log{% endblock %}
+
+{% block extra_head %}
+    <!-- Add extra CSS for logs page -->
+    <style>
+        /* Compact log entry styles */
+        .log-entries {
+            /* Remove fixed height and overflow-y to allow natural page scrolling */
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            position: relative;
+            margin-bottom: 30px;
+        }
+        
+        .log-entry {
+            border-bottom: 1px solid #e0e0e0;
+            margin-bottom: 0;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .log-entry:hover {
+            background-color: rgba(0, 0, 0, 0.02);
+        }
+        
+        .log-entry-header {
+            padding: 10px 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: relative;
+        }
+        
+        .log-entry-header::after {
+            content: '\f078'; /* fa-chevron-down */
+            font-family: 'Font Awesome 5 Free';
+            font-weight: 900;
+            position: absolute;
+            right: 15px;
+            transition: transform 0.2s;
+        }
+        
+        .log-entry.expanded .log-entry-header::after {
+            transform: rotate(180deg);
+        }
+        
+        .timestamp {
+            font-size: 0.85rem;
+            color: #666;
+        }
+        
+        /* Improved field display */
+        .field-row {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 8px;
+            flex-wrap: nowrap;
+        }
+        
+        .field-name {
+            font-weight: bold;
+            color: #555;
+            margin-right: 8px;
+            min-width: 120px;
+            flex-shrink: 0;
+        }
+        
+        .field-value-container {
+            flex-grow: 1;
+            position: relative;
+        }
+        
+        .field-value-toggle {
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            margin-left: 8px;
+            color: #333;
+        }
+        
+        .field-value-toggle:hover {
+            background-color: #e7e7e7;
+        }
+        
+        /* Expanded and truncated values */
+        .full-value {
+            margin-top: 5px;
+            background-color: #f8f8f8;
+            padding: 8px;
+            border-radius: 4px;
+            /* display controlled by JS */
+        }
+        
+        .truncated-value {
+            display: block;
+            padding: 3px 0;
+        }
+        
+        .simple-value {
+            word-break: break-word;
+        }
+        
+        .message-preview {
+            font-weight: normal;
+            margin-left: 10px;
+            flex-grow: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .log-entry-content {
+            padding: 0 15px 15px;
+            border-top: 1px solid #f0f0f0;
+            /* Display controlled by JavaScript */
+        }
+        
+        /* Field value containers */
+        .field-value-container {
+            position: relative;
+            flex-grow: 1;
+            display: flex;
+            flex-wrap: wrap;
+        }
+        
+        .field-value-toggle {
+            color: #2196F3;
+            cursor: pointer;
+            font-size: 0.8rem;
+            margin-left: 5px;
+        }
+        
+        /* Object and array containers */
+        .object-container, .array-container {
+            margin-left: 20px;
+        }
+        
+        .property-key {
+            color: #7b1fa2;
+            margin-right: 5px;
+        }
+        
+        .string-value { color: #2e7d32; }
+        .number-value { color: #0288d1; }
+        .boolean-value { color: #f57c00; }
+        .null-value { color: #d32f2f; }
+        
+        .object-property-toggle {
+            cursor: pointer;
+        }
+        
+        .object-property:not(.expanded) .property-value {
+            display: none;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="log-detail-container">
+    <h2>{{ logger_name }} Log</h2>
+    
+    <div class="log-navigation">
+        <a href="{{ url_for('logs') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Log List
+        </a>
+    </div>
+    
+    <div class="log-entries">
+        {% if log_entries %}
+            {% for entry in log_entries %}
+            <div class="log-entry">
+                <div class="log-entry-header">
+                    <span class="timestamp">{{ entry.timestamp }}</span>
+                    <span class="message-preview">
+                        {{ entry.message if entry.message is defined else '' }}
+                    </span>
+                </div>
+                <div class="log-entry-content">
+                    {% for key, value in entry.items() %}
+                        {% if key != "timestamp" and key != "message" %}
+                        <div class="log-entry-field">
+                            <div class="field-row">
+                                <div class="field-name">{{ key }}:</div>
+                                <div class="field-value-container">
+                                    {% if value is mapping %}
+                                        <div class="truncated-value">
+                                            {Object: {{ value|length }} properties}
+                                            <button class="field-value-toggle">Expand</button>
+                                        </div>
+                                        <div class="full-value">
+                                            <pre>{{ value|tojson(indent=2) }}</pre>
+                                            <button class="field-value-toggle">Collapse</button>
+                                        </div>
+                                    {% elif value is iterable and value is not string %}
+                                        <div class="truncated-value">
+                                            [Array: {{ value|length }} items]
+                                            <button class="field-value-toggle">Expand</button>
+                                        </div>
+                                        <div class="full-value">
+                                            <pre>{{ value|tojson(indent=2) }}</pre>
+                                            <button class="field-value-toggle">Collapse</button>
+                                        </div>
+                                    {% elif value is string and value|length > 100 %}
+                                        <div class="truncated-value">
+                                            {{ value[:100] }}...
+                                            <button class="field-value-toggle">Show more</button>
+                                        </div>
+                                        <div class="full-value">
+                                            <pre>{{ value }}</pre>
+                                            <button class="field-value-toggle">Show less</button>
+                                        </div>
+                                    {% elif value is string and "\n" in value %}
+                                        <div class="truncated-value">
+                                            {{ value.split('\n')[0] }}...
+                                            <button class="field-value-toggle">Show more</button>
+                                        </div>
+                                        <div class="full-value">
+                                            <pre>{{ value }}</pre>
+                                            <button class="field-value-toggle">Show less</button>
+                                        </div>
+                                    {% else %}
+                                        <div class="simple-value">{{ value }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="no-entries">No log entries found.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/logs.js') }}"></script>
+{% endblock %}

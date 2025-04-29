@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{# Main page title #}
+{% block title %}Neo Chat{% endblock %}
+
+{% block content %}
+{# Main chat interface container #}
+<div class="flex flex-col h-full w-full py-6">
+    {# Messages container - holds the conversation history #}
+    <div id="chat-messages" class="w-full space-y-6 pt-4">
+        {# Initial welcome message shown when no conversation exists #}
+        <div class="text-center py-12">
+            <h2 class="text-2xl font-semibold mb-4">Welcome to Neo Web Chat</h2>
+            <p class="text-gray-400">Type a message below to start chatting with Neo.</p>
+        </div>
+        <!-- Chat messages will be inserted here -->
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Initialize the chat interface when the DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', function() {
+        // Load existing conversation history from the server
+        loadChatHistory();
+    });
+</script>
+{% endblock %}

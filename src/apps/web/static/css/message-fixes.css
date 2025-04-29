@@ -1,0 +1,99 @@
+/* Message content fixes */
+.message-content {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.message-content pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.message-content code {
+  padding: 2px 4px;
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 0.9em;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.message-content h1, 
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6,
+.message-content p,
+.message-content ul,
+.message-content ol,
+.message-content li {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Ensure lists display properly */
+.message-content ul,
+.message-content ol {
+  padding-left: 20px;
+}
+
+/* Additional spacing for headings */
+.message-content h1 { font-size: 1.6em; margin: 0.5em 0; }
+.message-content h2 { font-size: 1.4em; margin: 0.5em 0; }
+
+/* Scrolling Fixes */
+
+/* Main container scrolling */
+#main-scroll-container {
+  /* Enable smooth scrolling */
+  scroll-behavior: smooth;
+  /* Start scroll at the top by default */
+  scrollbar-width: thin;
+  scrollbar-color: var(--neo-border) transparent;
+}
+
+/* Custom scrollbar appearance */
+#main-scroll-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+#main-scroll-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#main-scroll-container::-webkit-scrollbar-thumb {
+  background-color: var(--neo-border);
+  border-radius: 4px;
+}
+
+/* Ensure the chat container takes full height and displays messages in reverse order */
+#chat-messages {
+  display: flex;
+  flex-direction: column-reverse;
+  min-height: calc(100vh - 180px);
+  margin-bottom: 0;
+}
+
+/* Message spacing */
+.message-container {
+  margin: 0.75rem 0;
+}
+
+.message-container:first-child {
+  margin-top: auto; /* Push first message to bottom when few messages */
+}
+
+/* Ensure the input area stays fixed and properly styled */
+.input-area-container {
+  background-color: var(--neo-bg);
+  border-top: 1px solid var(--neo-border);
+  padding: 1rem;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
+}
