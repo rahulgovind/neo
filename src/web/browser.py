@@ -30,6 +30,8 @@ class BrowserException(Exception):
     """Custom exception for browser-related errors."""
     pass
 
+_playwright = None
+
 class Browser:
     def __init__(self, context: BrowserContext):
         """
@@ -213,12 +215,14 @@ class Browser:
         """
         try:
             logger.info(f"Initializing Chrome browser (headless: {headless})")
-            playwright = sync_playwright().start()
+            global _playwright
+            if _playwright is None:
+                _playwright = sync_playwright().start()
             
             # Get user data directory
             user_data_dir = None
             if session:
-                user_data_dir = session.internal_dir / "chrome_data"
+                user_data_dir = Path(session.internal_session_dir) / "chrome_data"
             else:
                 # For testing/standalone usage
                 user_data_dir_env = os.environ.get("USER_DATA_DIR")
@@ -227,13 +231,13 @@ class Browser:
             
             if user_data_dir:
                 logger.info(f"Using user data directory: {user_data_dir}")
-                context = playwright.chromium.launch_persistent_context(
+                context = _playwright.chromium.launch_persistent_context(
                     user_data_dir=str(user_data_dir),
                     headless=headless
                 )
             else:
                 logger.info("No user data directory specified, using temporary profile")
-                browser = playwright.chromium.launch(headless=headless)
+                browser = _playwright.chromium.launch(headless=headless)
                 context = browser.new_context()
             
             # Create a page if none exists

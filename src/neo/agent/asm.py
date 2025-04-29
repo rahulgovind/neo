@@ -138,9 +138,9 @@ class AgentStateMachine:
         num_attempts = 0
 
         while True:
-
             num_attempts += 1
-
+            if num_attempts > 2:
+                return state
             # Add a user message requesting the checkpoint
             logger.info(f"Checkpointing attempt {num_attempts}")
             checkpoint_request_state = state.add_messages(

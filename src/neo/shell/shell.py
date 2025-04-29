@@ -20,6 +20,8 @@ from src.neo.commands.update_file import UpdateFileCommand
 from src.neo.commands.file_text_search import FileTextSearch
 from src.neo.commands.file_path_search import FilePathSearch
 from src.neo.commands.terminal import ShellRunCommand, ShellViewCommand, ShellWriteCommand, ShellTerminateCommand
+from src.neo.commands.web_search import WebSearchCommand
+from src.neo.commands.web_markdown import WebMarkdownCommand
 from src.neo.core.constants import COMMAND_END
 from src.neo.session import Session
 import traceback
@@ -333,6 +335,10 @@ class Shell:
         self.register_command(ShellViewCommand())
         self.register_command(ShellWriteCommand())
         self.register_command(ShellTerminateCommand())
+        
+        # Register web commands
+        self.register_command(WebSearchCommand())
+        self.register_command(WebMarkdownCommand())
         
         # Register structured output command - import locally to avoid circular imports
         from src.neo.commands.structured_output import StructuredOutputCommand

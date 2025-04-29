@@ -38,7 +38,11 @@ class SessionManager:
     - Session name to ID mapping
     - Last active session tracking
     - Temporary session management
+    - Caching Session objects to avoid recreating them
     """
+    
+    # Cache to store session objects by ID
+    _session_cache = {}
 
     @classmethod
     def _get_repository(cls):
@@ -75,13 +79,21 @@ class SessionManager:
         Returns:
             Session object if found, otherwise None
         """
+        # Check cache first before querying the database
+        if session_id in cls._session_cache:
+            return cls._session_cache[session_id]
+            
+        # Query the repository if not found in cache
         repository = cls._get_repository()
         session_data = repository.find_session_by_id(session_id)
 
         if not session_data:
             return None
 
-        return cls._create_session_from_data(session_data)
+        # Create and cache the session object
+        session = cls._create_session_from_data(session_data)
+        cls._session_cache[session_id] = session
+        return session
 
     @classmethod
     def list_sessions(cls, include_temporary: bool = False) -> list[SessionInfo]:
@@ -138,6 +150,9 @@ class SessionManager:
 
         # Set as last active
         repository.set_last_active_session(session.session_id)
+        
+        # Add to cache
+        cls._session_cache[session.session_id] = session
 
         logger.info(f"Created new session '{name}' with ID {session.session_id}")
         return session
@@ -212,6 +227,9 @@ class SessionManager:
             is_temporary=True,
             workspace=workspace
         )
+        
+        # Add to cache
+        cls._session_cache[session.session_id] = session
 
         logger.info(f"Created temporary session '{name}' with ID {session.session_id}")
         return session
@@ -244,8 +262,15 @@ class SessionManager:
         if not updated_data:
             return None
             
+        # Remove from cache if it exists (we'll recreate with new data)
+        if session_id in cls._session_cache:
+            del cls._session_cache[session_id]
+            
+        # Create updated session and add to cache
+        updated_session = cls._create_session_from_data(updated_data)
+            
         logger.info(f"Updated session '{updated_data['session_name']}' with ID {session_id} - new workspace: {workspace}")
-        return cls._create_session_from_data(updated_data)
+        return updated_session
 
     @classmethod
     def _create_session_from_data(cls, session_data: Dict) -> "Session":
@@ -258,8 +283,19 @@ class SessionManager:
         Returns:
             Initialized Session object
         """
-        return Session.builder() \
-            .session_id(session_data["session_id"]) \
+        session_id = session_data["session_id"]
+        
+        # Check if the session is already in cache
+        if session_id in cls._session_cache:
+            return cls._session_cache[session_id]
+            
+        # Create a new session and store it in cache
+        session = Session.builder() \
+            .session_id(session_id) \
             .session_name(session_data["session_name"]) \
             .workspace(session_data.get("workspace")) \
             .initialize()
+            
+        # Store in cache
+        cls._session_cache[session_id] = session
+        return session
