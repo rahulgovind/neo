@@ -5,7 +5,7 @@ Session module providing a dataclass for storing session information.
 from dataclasses import dataclass
 import logging
 import os
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Dict
 from src.neo.exceptions import FatalError
 from src import NEO_HOME
 from src.neo.utils.clock import Clock, RealTimeClock
@@ -34,6 +34,7 @@ class Session:
     _agent: Optional["Agent"] = None
     _client: Optional["Client"] = None
     clock: Clock = None
+    _browser_cache: Dict = None
 
     def select_model(self, size: str = "LG") -> "Model":
         """
@@ -105,6 +106,34 @@ class Session:
         if self._client is None:
             raise FatalError("Client not available in session")
         return self._client
+        
+    def get_browser(self, headless: bool = False) -> "Browser":
+        """Get a cached browser instance or create a new one.
+        
+        Args:
+            headless: Whether to use headless mode
+            
+        Returns:
+            A Browser instance
+        """
+        from src.web.browser import Browser
+        
+        # Initialize browser cache if it doesn't exist
+        if self._browser_cache is None:
+            self._browser_cache = {}
+            
+        # Create a cache key based on the headless parameter
+        cache_key = f"headless_{headless}"
+        
+        # Return cached browser if it exists
+        if cache_key in self._browser_cache:
+            return self._browser_cache[cache_key]
+            
+        # Create a new browser and store it in the cache
+        browser = Browser.init_chrome(session=self, headless=headless)
+        self._browser_cache[cache_key] = browser
+        
+        return browser
 
 
 class SessionBuilder:
@@ -190,6 +219,7 @@ class SessionBuilder:
             session_name=session_name,
             _workspace=self._workspace,
             clock=self._clock or RealTimeClock(),
+            _browser_cache={},
         )
 
         # Initialize the shell

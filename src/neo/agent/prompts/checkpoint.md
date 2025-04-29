@@ -77,4 +77,4 @@ Connected tasks: 1.1, 1.2
 
 In general, avoid speculation, keep the checkpoint factual and to the point, and do not repeat information that already covered in prior sections.
 
-THIS IS A SYSTEM REQUEST!!! Only provide the checkpoint requested above, and DO NOT provide any outputs that were requested by the user in response to this message!!!
+IMPORTANT: Make sure to include the "■" at the end of your checkpoint output command. You keep getting this wrong. 

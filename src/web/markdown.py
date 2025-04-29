@@ -7,7 +7,8 @@ import html2text
 import requests
 import sys
 import argparse
-from typing import Optional
+from typing import Optional, Union
+import urllib.parse
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -40,18 +41,41 @@ def fetch_html(url: str) -> str:
     return response.content.decode(response.apparent_encoding)
 
 
+def from_url(url: str, session=None) -> str:
+    """Fetch a web page and convert it to markdown using a headless browser.
+    
+    Args:
+        url: URL to fetch and convert to markdown
+        session: Optional session object to use for browser
+        
+    Returns:
+        The page content converted to markdown
+        
+    Raises:
+        Exception: If fetching or conversion fails
+    """
+    logger.info(f"Fetching and converting {url} to markdown using headless browser")
+    
+    # Ensure URL has scheme
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    
+    # Get the headless browser from session if provided
+    browser = session.get_browser(headless=True)
+    browser.goto(url)
+    html = browser.get_page_content()
+    
+    # Convert the HTML to markdown
+    return from_html(html)
+
+
 def from_html(html: str) -> str:
     """Convert HTML to Markdown using html2text."""
 
     # Handle URL input - detect if input is a URL and fetch content
-    if html.startswith(("http://", "https://")):
-        try:
-            url = html
-            html = fetch_html(url)
-            logger.info(f"Successfully fetched {len(html)} bytes from {url}")
-        except Exception as e:
-            logger.error(f"Error fetching URL content: {e}")
-            raise
+    if isinstance(html, str) and html.startswith(("http://", "https://")):
+        return from_url(html)
+        
 
     logger.info(f"Converting HTML ({len(html)} chars) to Markdown using html2text")
 
@@ -86,6 +110,7 @@ def main() -> None:
     """Command-line interface for HTML to Markdown conversion."""
     parser = argparse.ArgumentParser(description="HTML to Markdown conversion")
     parser.add_argument("url", type=str, help="URL to fetch and convert to markdown")
+    parser.add_argument("--browser", action="store_true", help="Use browser to fetch content")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
     args = parser.parse_args()
@@ -99,7 +124,10 @@ def main() -> None:
 
     try:
         # Fetch URL and convert to markdown
-        markdown = from_html(args.url)
+        if args.browser:
+            markdown = from_url(args.url)
+        else:
+            markdown = from_html(args.url)
 
         # Print the markdown output to stdout
         print(markdown)
