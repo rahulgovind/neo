@@ -1,0 +1,22 @@
+# Cascade ToDo Items
+
+## Client Proxy Refactoring
+- [x] Create proxy architecture for LLM clients (Last updated at: Apr 29, 10:53 AM)
+  - [x] Create abstract Proxy class with process method and get_proxy factory
+  - [x] Implement OpenRouterProxy based on BaseClient
+  - [x] Update Client class to use proxy architecture
+  - [x] Move COMMAND_END truncation logic from proxy to Client class
+
+## Chat Interface Improvements
+- [x] Enhance /new-session command (Last updated at: Apr 29, 10:57 AM)
+  - [x] Allow creating sessions without an explicit name
+  - [x] Use current working directory as workspace when not specified
+  - [x] Update command help text for clarity
+
+## Next Steps
+- [ ] Add tests for proxy architecture (Last updated at: Apr 29, 10:49 AM)
+  - [ ] Test proxy factory method with different environment variables
+  - [ ] Test OpenRouterProxy implementation
+  - [ ] Add mock proxy for testing
+
+## Last Updated: Apr 29, 10:57 AM

@@ -1,6 +1,6 @@
 """
-Client module provides abstraction over LLM clients using the OpenAI API format.
-Handles client instantiation and request/response logging.
+OpenRouter proxy implementation for LLM client.
+Handles communication with OpenRouter's API using the OpenAI API format.
 """
 
 from collections import deque
@@ -19,21 +19,22 @@ import openai
 from src.logging.structured_logger import StructuredLogger
 from src.neo.core.constants import COMMAND_START, COMMAND_END
 from src.neo.core.messages import TextBlock, Message
+from src.neo.client.proxy import Proxy
 from openai.types import Completion
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 
-class BaseClient:
+class OpenRouterProxy(Proxy):
     """
-    Abstraction layer over LLM clients using the OpenAI API format.
-    Handles client instantiation, request/response logging, and command parsing.
+    OpenRouter implementation of the Proxy interface.
+    Handles client instantiation, request/response logging, and response parsing.
     """
 
     def __init__(self):
         """
-        Initialize the LLM client using environment variables.
+        Initialize the OpenRouter client using environment variables.
 
         Raises:
             ValueError: If required API_KEY environment variable is missing
@@ -63,16 +64,15 @@ class BaseClient:
         stop: List[str] = None,
     ) -> Dict[str, Any]:
         """
-        Build a request for the LLM API.
+        Build a request for the OpenRouter API.
 
         Args:
             messages: List of messages representing the conversation history
             model: The model identifier to use for the request
             stop: Optional list of stop sequences
-            include_command_instructions: Whether to include command instructions in system message
 
         Returns:
-            Dict: The prepared request data for the LLM API
+            Dict: The prepared request data for the OpenRouter API
         """
         processed_messages = []
 
@@ -129,26 +129,35 @@ class BaseClient:
             model_id = model if model is not None else self.default_model
 
             # Build the request data
-            request_data = self._build_request(
-                messages=messages,
-                model=model_id,
-                stop=stop,
+            request_data = self._build_request(messages, model_id, stop)
+
+            # Add debugging information
+            logger.debug(
+                f"Sending LLM request with {len(messages)} messages to model: {model_id}"
             )
 
-            # Send the request to the LLM
-            response = self._send_request(request_data, session_id=session_id or "unknown")
+            # Count tokens before sending
+            token_count = self.count_tokens(request_data)
+            if token_count:
+                logger.info(f"Estimated token count for request: {token_count}")
 
-            # Process and return the response
-            logger.debug(f"Received response:\n{response}")
-            try:
-                return self._parse_response(messages, response, request_data)
-            except Exception as e:
-                logger.exception(f"Failed to parse response {response}")
-                raise
+            # Send the request and get response
+            response = self._send_request(request_data, session_id or "default")
+
+            # Parse and return the response
+            return self._parse_response(messages, response, request_data)
 
         except Exception as e:
-            logger.exception(f"Error processing messages: {e}")
-            raise
+            logger.exception(f"Error in LLM client: {e}")
+            
+            # Create error message
+            message = Message(role="assistant")
+            message.add_content(
+                TextBlock(
+                    f"I'm sorry, I encountered an error while processing your request: {str(e)}"
+                )
+            )
+            return message
 
     def count_tokens(self, request_data: Dict[str, Any]) -> Optional[int]:
         """Calculate token count for messages using tiktoken.
@@ -160,128 +169,113 @@ class BaseClient:
             Optional[int]: Token count or None if there was an error
         """
         try:
-            # Use gpt-4o encoding by default
-            encoding = tiktoken.encoding_for_model("gpt-4o")
-
-            # Concatenate all messages into a single string for token counting
-            all_text = ""
-
-            # Process the messages array from the request data
-            for msg in request_data.get("messages", []):
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-
-                # Add role and content to the text
-                all_text += f"{role}: {content}\n\n"
-
-            # Count tokens using tiktoken
-            num_tokens = len(encoding.encode(all_text))
-
-            return num_tokens
+            # Use tiktoken to count tokens
+            encoding = tiktoken.encoding_for_model("gpt-4")
+            
+            # Count tokens for each message
+            total_tokens = 0
+            for message in request_data.get("messages", []):
+                role_tokens = len(encoding.encode(message["role"]))
+                
+                # Count tokens in content which could be string or list of content blocks
+                content_tokens = 0
+                content = message.get("content", "")
+                
+                # Handle both string content and structured content
+                if isinstance(content, str):
+                    content_tokens = len(encoding.encode(content))
+                else:
+                    for block in content:
+                        if isinstance(block, dict) and "text" in block:
+                            content_tokens += len(encoding.encode(block["text"]))
+                        elif isinstance(block, str):
+                            content_tokens += len(encoding.encode(block))
+                
+                total_tokens += role_tokens + content_tokens + 4  # Add formatting tokens
+            
+            # Add completion token estimate based on message count and complexity
+            total_tokens += 50 + 5 * len(request_data.get("messages", []))
+            
+            return total_tokens
         except Exception as e:
-            logger.exception(f"Error counting tokens: {str(e)}")
+            logger.warning(f"Error counting tokens: {e}")
             return None
 
     def _send_request(
         self, request_data: Dict[str, Any], session_id: str
-    ) -> Completion:
+    ) -> Any:
         """
-        Send a request to the LLM and return the response.
+        Send a request to the OpenRouter and return the response.
 
         Args:
             request_data: Dictionary containing the request data
+            session_id: Session identifier for tracking
 
         Returns:
-            The LLM response object
+            The OpenRouter response object
         """
-        # Generate a unique ID for this request-response pair
-        request_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-
-        # Get model name for logging
-        model_name = request_data.get("model", "unknown")
-
-        # Log request start
-        request_log_data = {
-            "message": f"Sending request to model {model_name}",
-            "operation_type": "request_start",
-            "request_id": request_id,
-            "session_id": session_id,
-            "model": model_name,
-            "request": request_data,
-            "meta": {
-                "timestamp": datetime.datetime.now().isoformat(),
-                "session_id": session_id,
-                "message_count": len(request_data.get("messages", [])),
-                "approx_num_tokens": self.count_tokens(request_data),
-            },
-        }
-
-        # Log the request using the structured logger
-        self._logger.record("requests", request_log_data)
-
-        logger.debug(
-            f"Sending request to LLM with {len(request_data.get('messages', []))} messages"
-        )
-        logger.info(
-            f"Sending request {request_id} with {len(request_data.get('messages', []))} messages to {model_name}"
-        )
-        
         start_time = time.time()
-
         try:
-            # Send the request to the LLM
+            # Log request details
+            logger.info(
+                f"Sending request to {request_data.get('model', 'unknown')} model with {len(request_data.get('messages', []))} messages"
+            )
+            
+            # Try to extract the first and last few characters of the last message for context
+            if request_data.get("messages") and len(request_data["messages"]) > 0:
+                last_message = request_data["messages"][-1]
+                last_content = ""
+                
+                # Extract content text based on format
+                if isinstance(last_message.get("content"), str):
+                    last_content = last_message["content"]
+                elif isinstance(last_message.get("content"), list) and len(last_message["content"]) > 0:
+                    if isinstance(last_message["content"][0], dict) and "text" in last_message["content"][0]:
+                        last_content = last_message["content"][0]["text"]
+                    elif isinstance(last_message["content"][0], str):
+                        last_content = last_message["content"][0]
+                
+                # Log a preview of the last message
+                if last_content:
+                    max_preview_len = 50
+                    if len(last_content) > max_preview_len * 2:
+                        preview = f"{last_content[:max_preview_len]}...{last_content[-max_preview_len:]}"
+                    else:
+                        preview = last_content
+                    logger.info(f"Last message preview: {preview}")
+            
+            # Prepare a directory to save debug logs if DEBUG is set
+            if os.environ.get("DEBUG", "").lower() == "true":
+                debug_dir = Path("./logs/llm_debug")
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                debug_file = debug_dir / f"request_{timestamp}_{session_id}.json"
+                
+                with open(debug_file, "w") as f:
+                    import json
+                    json.dump(request_data, f, indent=2)
+                    
+                logger.debug(f"Saved debug request to {debug_file}")
+
+            # Create and execute a chat completion with the OpenAI client
             response = self._client.chat.completions.create(**request_data)
-            # Process response with updated _parse_response that takes request_data
-
-            # Convert the response to a dictionary for logging
-            response_dict = response.to_dict()
-
-            # Calculate elapsed time
-            elapsed_time = time.time() - start_time
-
-            # Log successful response
-            response_log_data = {
-                "message": f"Received response from model {model_name}",
-                "operation_type": "response",
-                "status": "success",
-                "request_id": request_id,
-                "session_id": session_id,
-                "model": model_name,
-                "response": response_dict,
-                "meta": {
-                    "message_count": len(request_data.get("messages", [])),
-                    "approx_num_tokens": self.count_tokens(request_data),
-                    "elapsed_time": elapsed_time,
-                },
-            }
-
-            # Log the response using the structured logger
-            self._logger.record("requests", response_log_data)
-
-            logger.info(f"Request processed in {elapsed_time:.2f} seconds")
-
+            
+            # Log response time
+            duration = time.time() - start_time
+            logger.info(f"Received response in {duration:.2f} seconds")
+            
+            # Optionally log full response in debug mode
+            if os.environ.get("DEBUG", "").lower() == "true":
+                debug_file = debug_dir / f"response_{timestamp}_{session_id}.json"
+                with open(debug_file, "w") as f:
+                    f.write(str(response))
+                logger.debug(f"Saved debug response to {debug_file}")
+                
             return response
 
         except Exception as e:
-            # Log failed response
-            error_log_data = {
-                "message": f"Error response from model {model_name}: {str(e)}",
-                "operation_type": "response",
-                "status": "failure",
-                "request_id": request_id,
-                "session_id": session_id,
-                "model": model_name,
-                "error": str(e),
-                "meta": {
-                    "message_count": len(request_data.get("messages", [])),
-                    "approx_num_tokens": self.count_tokens(request_data),
-                },
-            }
-
-            # Log the error using the structured logger
-            self._logger.record("requests", error_log_data)
-
-            # Re-raise the exception
+            duration = time.time() - start_time
+            logger.error(f"Error sending request after {duration:.2f} seconds: {e}")
             raise
 
     def _fetch_openrouter_metadata(self, completion_id: str) -> Dict[str, Any]:
@@ -341,10 +335,11 @@ class BaseClient:
         self, messages: List[Message], response, request_data: Dict[str, Any]
     ) -> Message:
         """
-        Parse LLM response to extract text and command calls.
+        Parse OpenRouter response to extract text.
 
         Args:
-            response: LLM response object
+            messages: Original messages sent to the model
+            response: OpenRouter response object
             request_data: Request data dictionary
 
         Returns:
@@ -357,8 +352,6 @@ class BaseClient:
         # Validate response and extract content
         try:
             content = response.choices[0].message.content
-            if COMMAND_END in content:
-                content = content[:content.find(COMMAND_END) + 1]
             
         except (AttributeError, IndexError, TypeError) as e:
             logger.exception(f"Invalid response structure: {response}")

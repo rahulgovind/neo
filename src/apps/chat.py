@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 COMMANDS = {
     "/exit": "Exit the chat session",
     "/help": "Show this help message",
-    "/new-session": "Create a new session (requires workspace)",
+    "/new-session": "Create a new session (optional: session_name)",
     "/list": "List persistent sessions",
     "/switch": "Switch to a different persistent session",
     "/info": "Show current session info",
@@ -480,18 +480,24 @@ def handle_command(command: str) -> None:
             )
             console.print("---")
     elif cmd == "new-session":
-        if not args:
-            console.print("[yellow]Usage: /new-session <session_name>[/yellow]")
-        else:
-            try:
-                new_session_name = args.strip() if args.strip() else None
-                new_session = Service.create_session(new_session_name, workspace)
-                console.print(
-                    f"[green]Created new session: [bold]{new_session.session_name}[/bold] (ID: {new_session.session_id})[/green]"
-                )
-                _update_session(new_session)
-            except Exception as e:
-                console.print(f"[red]Failed to create session: {e}[/red]")
+        try:
+            # Use current working directory as workspace if not set
+            current_workspace = workspace if workspace else os.getcwd()
+            
+            # Use provided name or let the system generate one
+            new_session_name = args.strip() if args and args.strip() else None
+            
+            # Create the new session
+            new_session = Service.create_session(new_session_name, current_workspace)
+            
+            console.print(
+                f"[green]Created new session: [bold]{new_session.session_name}[/bold] (ID: {new_session.session_id})[/green]"
+            )
+            console.print(f"[green]Workspace: [bold]{current_workspace}[/bold][/green]")
+            
+            _update_session(new_session)
+        except Exception as e:
+            console.print(f"[red]Failed to create session: {e}[/red]")
     elif cmd == "set":
         if not args or " " not in args:
             console.print("[yellow]Usage: /set <setting> <value>[/yellow]")

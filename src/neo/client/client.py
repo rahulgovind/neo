@@ -9,7 +9,7 @@ from typing import List, Optional, Dict, Any, Union
 from openai._utils import transform
 from openai.types import Completion
 
-from src.neo.client.base import BaseClient
+from src.neo.client.proxy import Proxy
 from src.neo.core.constants import (
     COMMAND_END,
     COMMAND_START,
@@ -32,7 +32,7 @@ class Client:
     # Instructions for command execution format
 
     def __init__(self, shell: Shell):
-        self._client = BaseClient()
+        self._client = Proxy.get_proxy()
         self._shell = shell
 
     def process(
@@ -198,6 +198,22 @@ class Client:
             response.content[0] = TextBlock(
                 text=assistant_prefill + response.content[0].model_text()
             )
+            
+        # Process each content block to check for COMMAND_END truncation
+        processed_content = []
+        for block in response.content:
+            content_text = block.model_text()
+            # If COMMAND_END is found, truncate the content
+            if COMMAND_END in content_text:
+                content_text = content_text[:content_text.find(COMMAND_END) + 1]
+                processed_content.append(TextBlock(text=content_text))
+                # Stop processing after COMMAND_END is found
+                break
+            else:
+                processed_content.append(block)
+                
+        # Update response with processed content
+        response.content = processed_content
 
         blocks = []
         for block in response.content:
