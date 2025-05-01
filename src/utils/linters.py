@@ -111,7 +111,7 @@ class PythonLinter(LinterBase):
         try:
             # Run pylint on the temporary file
             # Disable R (Refactor) and C (Convention) checks
-            cmd = ["pylint", "--disable=R,C", "--output-format=text", temp_filename]
+            cmd = ["pylint", "--disable=R,C,W", "--output-format=text", temp_filename]
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             # Check if linting failed

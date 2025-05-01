@@ -238,7 +238,9 @@ class Browser:
             else:
                 logger.info("No user data directory specified, using temporary profile")
                 browser = _playwright.chromium.launch(headless=headless)
-                context = browser.new_context()
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+                )
             
             # Create a page if none exists
             if len(context.pages) == 0:
@@ -304,6 +306,7 @@ class Browser:
                 
                 const label = document.createElement('div');
                 label.textContent = id;
+                label.className = "neo-highlight"
                 label.style.cssText = `
                     position: fixed;
                     background: ${color};

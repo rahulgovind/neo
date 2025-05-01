@@ -7,8 +7,13 @@ import html2text
 import requests
 import sys
 import argparse
+import re
 from typing import Optional, Union
 import urllib.parse
+from src.web.browser import Browser
+from bs4 import BeautifulSoup
+from bs4.element import Comment
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -41,12 +46,59 @@ def fetch_html(url: str) -> str:
     return response.content.decode(response.apparent_encoding)
 
 
-def from_url(url: str, session=None) -> str:
+def filter_invisible_elements(html: str) -> str:
+    """
+    Filter out invisible elements from HTML before conversion to Markdown.
+    
+    Args:
+        html: HTML content as a string
+        
+    Returns:
+        Filtered HTML with invisible elements removed
+    """
+    logger.info("Filtering invisible elements from HTML")
+    
+    soup = BeautifulSoup(html, 'html.parser')
+    
+    # Remove elements with style="display:none" or style="visibility:hidden"
+    for element in soup.find_all(style=True):
+        style = element.get('style', '').lower()
+        if 'display:none' in style or 'visibility:hidden' in style:
+            element.decompose()
+    
+    # Remove hidden form elements
+    for element in soup.find_all(type='hidden'):
+        element.decompose()
+    
+    # Remove script and style tags
+    for tag in soup.find_all(['script', 'style', 'noscript']):
+        tag.decompose()
+    
+    # Remove elements with hidden class
+    for element in soup.find_all(class_=True):
+        classes = element.get('class', [])
+        if any(c in ['hidden', 'hide', 'invisible', 'd-none'] for c in classes):
+            element.decompose()
+    
+    # Remove comment nodes
+    for comment in soup.find_all(text=lambda text: isinstance(text, Comment)):
+        comment.extract()
+    
+    # Remove aria-hidden elements
+    for element in soup.find_all(attrs={"aria-hidden": "true"}):
+        element.decompose()
+        
+    logger.debug(f"Filtered HTML size: {len(str(soup))} chars")
+    
+    return str(soup)
+
+
+def from_url(browser: Browser, url: str) -> str:
     """Fetch a web page and convert it to markdown using a headless browser.
     
     Args:
+        browser: Browser object to use for fetching and converting
         url: URL to fetch and convert to markdown
-        session: Optional session object to use for browser
         
     Returns:
         The page content converted to markdown
@@ -60,8 +112,6 @@ def from_url(url: str, session=None) -> str:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
     
-    # Get the headless browser from session if provided
-    browser = session.get_browser(headless=True)
     browser.goto(url)
     html = browser.get_page_content()
     
@@ -76,9 +126,18 @@ def from_html(html: str) -> str:
     if isinstance(html, str) and html.startswith(("http://", "https://")):
         return from_url(html)
         
-
     logger.info(f"Converting HTML ({len(html)} chars) to Markdown using html2text")
 
+    # Filter out invisible elements before conversion
+    soup = BeautifulSoup(html, 'html.parser')
+    
+    # Remove elements with display:none or visibility:hidden in style attribute
+    for element in soup.find_all(lambda tag: tag.has_attr('class') and 'neo-highlight' in tag['class']):
+        element.decompose()
+    
+    filtered_html = str(soup)
+    logger.debug(f"Filtered HTML size: {len(filtered_html)} chars")
+    
     # Configure the HTML to Markdown converter
     converter = html2text.HTML2Text()
 
@@ -87,16 +146,14 @@ def from_html(html: str) -> str:
     converter.ignore_images = False
     converter.ignore_tables = False
     converter.body_width = 0  # No wrapping
-    converter.unicode_snob = (
-        True  # Use Unicode characters instead of ASCII approximations
-    )
+    converter.unicode_snob = True  # Use Unicode characters instead of ASCII approximations
     converter.inline_links = True  # Use inline links
     converter.wrap_links = False  # Don't wrap links
     converter.protect_links = True  # Don't escape URLs
     converter.mark_code = True  # Use markdown code formatting
 
-    # Convert HTML to Markdown
-    markdown = converter.handle(html)
+    # Convert filtered HTML to Markdown
+    markdown = converter.handle(filtered_html)
 
     # Clean up the markdown
     markdown = markdown.strip()
@@ -110,8 +167,8 @@ def main() -> None:
     """Command-line interface for HTML to Markdown conversion."""
     parser = argparse.ArgumentParser(description="HTML to Markdown conversion")
     parser.add_argument("url", type=str, help="URL to fetch and convert to markdown")
-    parser.add_argument("--browser", action="store_true", help="Use browser to fetch content")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
 
     args = parser.parse_args()
 
@@ -124,10 +181,7 @@ def main() -> None:
 
     try:
         # Fetch URL and convert to markdown
-        if args.browser:
-            markdown = from_url(args.url)
-        else:
-            markdown = from_html(args.url)
+        markdown = from_url(Browser.init_chrome(headless=args.headless), args.url)
 
         # Print the markdown output to stdout
         print(markdown)

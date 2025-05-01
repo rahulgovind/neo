@@ -15,6 +15,8 @@ from textwrap import dedent
 
 from src.neo.commands.base import Command, CommandResult, CommandOutput
 from src.web.markdown import from_url
+from src.neo.session import Session
+from src.web.browser import Browser
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -95,7 +97,7 @@ class WebMarkdownCommand(Command):
                 clean_statement = clean_statement[1:-1]
             return WebMarkdownArguments(url=clean_statement)
         
-    def execute(self, session, statement: str, data: Optional[str] = None) -> CommandResult:
+    def execute(self, session: Session, statement: str, data: Optional[str] = None) -> CommandResult:
         """Execute the web markdown command."""
         try:
             # Parse the command statement
@@ -106,7 +108,7 @@ class WebMarkdownCommand(Command):
             # Import here to support patching in tests
             from src.web.markdown import from_url
             # Convert the URL to markdown using the session for browser access
-            markdown = from_url(url=args.url, session=session)
+            markdown = from_url(browser=session.get_browser(headless=True), url=args.url)
             
             # Create a sanitized filename from the URL
             from urllib.parse import urlparse
@@ -120,30 +122,24 @@ class WebMarkdownCommand(Command):
             # Define the default output file
             output_file = f"/tmp/{filename}"
             
-            # Try to save to the session directory if possible
-            try:
-                # Define the output path in session's internal directory
-                session_dir = session.internal_session_dir
-                output_dir = os.path.join(session_dir, "web_markdown")
-                os.makedirs(output_dir, exist_ok=True)
-                
-                file_path = os.path.join(output_dir, filename)
-                
-                # Write the markdown to the file
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(markdown)
-                
-                logger.info(f"Markdown content saved to {file_path}")
-                output_file = file_path
-            except (OSError, IOError) as e:
-                # In tests, we may not be able to write to the file system
-                # Just log a warning and continue with the default path
-                logger.warning(f"Could not write to file: {e}")
+            # Define the output path in session's internal directory
+            session_dir = session.internal_session_dir
+            output_dir = os.path.join(session_dir, "web_markdown")
+            os.makedirs(output_dir, exist_ok=True)
+            
+            file_path = os.path.join(output_dir, filename)
+            
+            # Write the markdown to the file
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(markdown)
+            
+            logger.info(f"Markdown content saved to {file_path}")
+            output_file = file_path
             
             # Return the converted markdown
             return CommandResult(
                 success=True,
-                content=f"Successfully converted {args.url} to markdown and saved to {output_file}.",
+                content=f"Successfully converted {args.url} to markdown and saved to {output_file} ",
                 command_output=WebMarkdownResult(
                     markdown=markdown,
                     url=args.url,
@@ -152,7 +148,7 @@ class WebMarkdownCommand(Command):
             )
             
         except Exception as e:
-            logger.error(f"Error converting webpage to markdown: {e}")
+            logger.error(f"Error converting webpage to markdown: {e}", exc_info=True)
             return CommandResult(
                 success=False,
                 content=f"Error converting webpage to markdown: {str(e)}",

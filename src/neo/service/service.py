@@ -201,5 +201,45 @@ class Service:
         except Exception as e:
             logger.error("Unexpected error updating session: %s", e, exc_info=True)
             raise RuntimeError(f"Failed to update session: {e}") from e
+    
+    @classmethod
+    def execute_shell_command(cls, session_id: str, command: str) -> Message:
+        """Executes a shell command in the specified session.
+        
+        Args:
+            session_id: The ID of the session to use
+            command: The shell command to execute (with markers)
+            
+        Returns:
+            Message object containing the command result
+            
+        Raises:
+            ValueError: If session with the given ID doesn't exist
+            RuntimeError: If command execution fails
+        """
+        logger.info("Service executing shell command in session %s: %s", session_id, command)
+        
+        # First verify the session exists
+        session = SessionManager.get_session(session_id)
+        if not session:
+            logger.error("Service.execute_shell_command: Session with ID '%s' not found", session_id)
+            raise ValueError(f"Session not found: {session_id}")
+        
+        # Parse the command to extract the command name and arguments
+        from src.neo.core.messages import Message, TextBlock
+        
+        # Parse the command into parts
+        parts = command.split(maxsplit=1)
+        command_name = parts[0] if parts else ""
+        statement = parts[1] if len(parts) > 1 else ""
+        
+        # Execute the command directly using the shell
+        result = session.shell.execute(command_name, statement)
+        
+        # Return a message containing the command result
+        return Message(
+            role="user",
+            content=[TextBlock(text=result.model_text())],
+        )
         
 

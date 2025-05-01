@@ -3,18 +3,13 @@ Search module to perform web searches and extract relevant information.
 """
 
 import logging
-import re
-import html
-import sys
-import argparse
-import requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List
 from src.web.browser import Browser, BrowserException
-from src.web.markdown import from_html, fetch_html
-
+from typing import Tuple
+from dataclasses import replace
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 @dataclass
 class SearchResult:
@@ -30,76 +25,61 @@ logger = logging.getLogger(__name__)
 
 
 def perform_bing_search(
-    query: str, max_results: int = 5, headless: bool = True
+    browser: Browser, query: str, max_results: int = 5
 ) -> List[SearchResult]:
     """
     Use Playwright to search Bing and return the first page of results.
 
     Args:
+        browser: Browser instance to use for search
         query: The search query to perform
         max_results: Maximum number of results to extract
-        headless: Whether to run the browser in headless mode
 
     Returns:
-        List of dicts with 'title', 'url', and 'snippet' keys
+        List of SearchResult objects containing search results
     """
     results = []
-    browser = None
 
-    try:
-        # Initialize the browser
-        browser = Browser.init_chrome(headless=headless)
-        page = browser._page
+    # Navigate to Bing
+    logger.info("Navigating to Bing")
+    browser.goto("https://www.bing.com")
 
-        # Navigate to Bing
-        logger.info("Navigating to Bing")
-        browser.goto("https://www.bing.com")
+    # Enter search query
+    logger.info(f"Entering search query: {query}")
+    browser.fill("#sb_form_q", query)
 
-        # Enter search query
-        logger.info(f"Entering search query: {query}")
-        browser.fill("#sb_form_q", query)
+    # Wait for results to load
+    logger.info("Waiting for search results")
+    browser._page.wait_for_selector(".b_algo", timeout=10000)
 
-        # Wait for results to load
-        logger.info("Waiting for search results")
-        page.wait_for_selector(".b_algo", timeout=10000)
+    # Get the HTML content
+    html_content = browser.get_page_content()
 
-        # Get the HTML content
-        html_content = browser.get_page_content()
+    # Process HTML with BeautifulSoup
+    soup = BeautifulSoup(html_content, "html.parser")
 
-        # Process HTML with BeautifulSoup
-        soup = BeautifulSoup(html_content, "html.parser")
+    # Find all search result items
+    result_elements = soup.select(".b_algo")
 
-        # Find all search result items
-        result_elements = soup.select(".b_algo")
+    # Process each result element
+    for element in result_elements:
+        try:
+            # Extract all results from this element (main + deep links)
+            element_results = extract_search_result(element)
 
-        # Process each result element
-        for element in result_elements:
-            try:
-                # Extract all results from this element (main + deep links)
-                element_results = extract_search_result(element)
-
-                # Add results until we reach max_results
-                for result in element_results:
-                    results.append(result)
-                    if len(results) >= max_results:
-                        break
-
-                # If we've reached max_results, stop processing
+            # Add results until we reach max_results
+            for result in element_results:
+                results.append(result)
                 if len(results) >= max_results:
                     break
 
-            except Exception as e:
-                logger.warning(f"Error extracting result: {e}")
-                continue
+            # If we've reached max_results, stop processing
+            if len(results) >= max_results:
+                break
 
-    except BrowserException as e:
-        logger.error(f"Browser error during search: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error during search: {e}")
-    finally:
-        # Clean up browser resources
-        if browser:
-            del browser
+        except Exception as e:
+            logger.warning(f"Error extracting result: {e}")
+            continue
 
     logger.info(f"Found {len(results)} search results")
     return results
@@ -113,7 +93,7 @@ def extract_search_result(element) -> List[SearchResult]:
         element: BeautifulSoup element representing a search result
 
     Returns:
-        List of dicts with 'title', 'url', and 'snippet' keys
+        List of SearchResult objects containing search results
     """
     results = []
 
@@ -249,57 +229,46 @@ def enrich_search_results(
 
     logger.info(f"Enriching {len(search_results)} search results")
 
-    def fetch_page_metadata(
+    def enrich_single_result(
         result: SearchResult,
-    ) -> Tuple[SearchResult, Dict[str, Any]]:
+    ) -> SearchResult:
         """Fetch metadata for a single search result."""
-        metadata = {}
         try:
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
             }
             response = requests.get(result.link, headers=headers, timeout=5)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "html.parser")
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
 
-                # Extract page title
-                title_tag = soup.find("title")
-                if title_tag and title_tag.text.strip():
-                    metadata["title"] = title_tag.text.strip()
+            # Extract page title
+            title_tag = soup.find("title")
+            if title_tag and title_tag.text.strip():
+                result = replace(result, title=title_tag.text.strip())
 
-                # Extract page description
-                desc_tag = (
-                    soup.find("meta", attrs={"name": "description"})
-                    or soup.find("meta", attrs={"property": "og:description"})
-                    or soup.find("meta", attrs={"name": "twitter:description"})
-                )
-                if desc_tag and desc_tag.get("content"):
-                    metadata["description"] = desc_tag.get("content").strip()
+            # Extract page description
+            desc_tag = (
+                soup.find("meta", attrs={"name": "description"})
+                or soup.find("meta", attrs={"property": "og:description"})
+                or soup.find("meta", attrs={"name": "twitter:description"})
+            )
+            if desc_tag and desc_tag.get("content"):
+                result = replace(result, description=desc_tag.get("content").strip())
         except Exception as e:
             logger.debug(f"Error fetching metadata for {result.link}: {e}")
 
-        return result, metadata
+        return result
 
     enriched_results = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_result = {
-            executor.submit(fetch_page_metadata, result): result
+            executor.submit(enrich_single_result, result): result
             for result in search_results
         }
-
         for future in as_completed(future_to_result):
             original_result = future_to_result[future]
             try:
-                result, metadata = future.result()
-
-                # Create a new enriched result
-                enriched_result = SearchResult(
-                    title=metadata.get("title", original_result.title),
-                    description=metadata.get(
-                        "description", original_result.description
-                    ),
-                    link=original_result.link,
-                )
+                enriched_result = future.result()
 
                 enriched_results.append(enriched_result)
 
@@ -316,15 +285,15 @@ def enrich_search_results(
 
 
 def search(
-    query: str, max_results: int = 5, headless: bool = True
+    browser: Browser, query: str, max_results: int = 5
 ) -> List[SearchResult]:
     """
     Perform a web search and extract results directly from the HTML.
 
     Args:
+        browser: Browser instance to use for search
         query: Search query to perform
         max_results: Maximum number of search results to process
-        headless: Whether to run the browser in headless mode
 
     Returns:
         List of SearchResult objects containing search results
@@ -332,7 +301,7 @@ def search(
     logger.info(f"Starting search for: '{query}'")
 
     # Search Bing with direct HTML extraction
-    search_results = perform_bing_search(query, max_results, headless=headless)
+    search_results = perform_bing_search(browser, query, max_results)
 
     # Always enrich search results
     if search_results:

@@ -103,12 +103,17 @@ class WebSearchCommand(Command):
             # Perform the search with standard parameters
             # Import here to support patching in tests
             from src.web.search import search
-            results = search(query=args.query, max_results=5, headless=True)
+            results = search(session.get_browser(headless=True), query=args.query, max_results=5)
+            
+            if len(results) == 0:
+                content = "No results found"
+            else:
+                content = "\n".join([f"{i+1}. Title: {result.title}\nLink: {result.link}\nDescription: {result.description}" for i, result in enumerate(results)])
             
             # Return the search results
             return CommandResult(
                 success=True,
-                content="Search completed successfully",
+                content=content,
                 command_output=WebSearchResult(
                     results=results,
                     query=args.query
